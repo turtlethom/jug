@@ -23,7 +23,8 @@ mkdir -p "$BUILD_DIR"
 # Build binary
 # ---------------------------------------------------------
 echo "[*] Building fcd binary..."
-go build -o "$BUILD_DIR/fcd" "$PROJECT_ROOT/main.go"
+# -C runs the build from the module root, so this works from any directory
+go build -C "$PROJECT_ROOT" -o "$BUILD_DIR/fcd" .
 
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
