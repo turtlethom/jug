@@ -2,3 +2,7 @@ fcd.json
 internal/.null-ls_992563_command.go
 notes/
 test/
+
+# build output
+/jug
+/dist/

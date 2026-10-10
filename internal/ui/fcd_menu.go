@@ -10,7 +10,7 @@ var docStyle = lipgloss.NewStyle().Margin(2, 1)
 
 // Core state of Bubble Tea program
 type MenuModel struct {
-	List     list.Model // Menu options
+	List list.Model // Menu options
 }
 
 // Init Initializes Bubble Tea Model, can return initial commands
@@ -33,7 +33,7 @@ func (m MenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handles window sizing
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
-		m.List.SetSize(msg.Width - h, msg.Height - v)
+		m.List.SetSize(msg.Width-h, msg.Height-v)
 	}
 
 	m.List, cmd = m.List.Update(msg)
@@ -49,7 +49,7 @@ func (m MenuModel) View() string {
 
 // NewMenuModel is a constructor function for creating a MenuModel instance
 func NewMenuModel(fcdListModel list.Model) MenuModel {
-	return MenuModel {
+	return MenuModel{
 		List: fcdListModel,
 	}
 }

@@ -3,17 +3,17 @@ package styles
 import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/turtlethom/fcd/internal/data"
+	"github.com/turtlethom/jug/internal/config"
 )
 
 // NewStyles initializes the styles that are configured for bubbles/list component
 //
 // Returns a Styles struct with all initialized styles for the component
-func NewFCDMenuStyles(config *data.Config) Styles {
+func NewFCDMenuStyles(cfg *config.Config) Styles {
 	// Sets colors of the menu based on user configuration
-	primary := lipgloss.Color(config.UserColors.Primary)
-	secondary := lipgloss.Color(config.UserColors.Secondary)
-	tertiary := lipgloss.Color(config.UserColors.Tertiary)
+	primary := lipgloss.Color(cfg.Colors.Primary)
+	secondary := lipgloss.Color(cfg.Colors.Secondary)
+	tertiary := lipgloss.Color(cfg.Colors.Tertiary)
 
 	// Styles for normal items present within bubbles/list component
 	NORMAL_PRESETS := lipgloss.NewStyle().

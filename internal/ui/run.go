@@ -20,4 +20,3 @@ func Run(model tea.Model) tea.Model {
 	}
 	return final
 }
-

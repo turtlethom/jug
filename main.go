@@ -1,20 +1,8 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
+// Command jug is a bookmark-first interactive directory navigator.
 package main
 
-import (
-	"log"
-
-	"github.com/turtlethom/fcd/cmd"
-	"github.com/turtlethom/fcd/internal/data"
-)
+import "github.com/turtlethom/jug/cmd"
 
 func main() {
-	config, err := data.HandleConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
-	cmd.SetConfig(config)
 	cmd.Execute()
 }
