@@ -64,6 +64,17 @@ func TestDefaultPath(t *testing.T) {
 	if want := filepath.Join(xdg, "jug", "config.toml"); got != want {
 		t.Errorf("with XDG_CONFIG_HOME: got %q, want %q", got, want)
 	}
+
+	// The XDG spec says to ignore relative paths. Honoring one would move
+	// the config depending on where jug was launched from.
+	t.Setenv("XDG_CONFIG_HOME", "relative/config")
+	got, err = DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".config", "jug", "config.toml"); got != want {
+		t.Errorf("with relative XDG_CONFIG_HOME: got %q, want %q", got, want)
+	}
 }
 
 func TestLegacyPath(t *testing.T) {

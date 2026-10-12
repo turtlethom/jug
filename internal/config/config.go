@@ -19,6 +19,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -56,15 +58,28 @@ var (
 )
 
 // DefaultPath returns where jug's config lives: $XDG_CONFIG_HOME/jug/config.toml
-// if XDG_CONFIG_HOME is set, otherwise $HOME/.config/jug/config.toml.
+// if XDG_CONFIG_HOME is set to an absolute path, otherwise
+// $HOME/.config/jug/config.toml. This is the same on Linux and macOS.
 func DefaultPath() (string, error) {
-	return "", errNotImplemented
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(base) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "jug", "config.toml"), nil
 }
 
 // LegacyPath returns where fcd v1 kept its config:
 // filepath.Join(os.UserConfigDir(), "fcd", "fcd_config.json").
 func LegacyPath() (string, error) {
-	return "", errNotImplemented
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "fcd", "fcd_config.json"), nil
 }
 
 // Load reads the config at path.
