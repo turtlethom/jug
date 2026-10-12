@@ -363,12 +363,25 @@ func (c *Config) Add(label, dir string) error {
 	}
 	for _, b := range c.Bookmarks {
 		if b.Path == path {
-			return fmt.Errorf("%s is already saved as %q: %w", path, b.Label, ErrDuplicate)
+			return fmt.Errorf("%s is already saved as %q: %w", ContractHome(path), b.Label, ErrDuplicate)
 		}
 	}
 
 	c.Bookmarks = append(c.Bookmarks, Bookmark{Label: label, Path: path})
 	return nil
+}
+
+// SuggestLabel is the label offered when bookmarking dir: its name in
+// uppercase, like fcd's labels. $HOME suggests HOME, and / suggests ROOT.
+func SuggestLabel(dir string) string {
+	dir = filepath.Clean(dir)
+	if home, err := os.UserHomeDir(); err == nil && dir == filepath.Clean(home) {
+		return "HOME"
+	}
+	if dir == string(filepath.Separator) {
+		return "ROOT"
+	}
+	return strings.ToUpper(filepath.Base(dir))
 }
 
 // expandHome replaces a leading "~" or "~/" in p with the home directory.

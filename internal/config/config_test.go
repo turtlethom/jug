@@ -585,3 +585,19 @@ func TestRemoveAndFind(t *testing.T) {
 		t.Errorf("removing twice: want ErrNotFound, got %v", err)
 	}
 }
+
+func TestSuggestLabel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cases := map[string]string{
+		filepath.Join(home, ".config", "nvim"): "NVIM",
+		filepath.Join(home, "bashconfig"):      "BASHCONFIG",
+		home:                                   "HOME",
+		"/":                                    "ROOT",
+	}
+	for dir, want := range cases {
+		if got := SuggestLabel(dir); got != want {
+			t.Errorf("SuggestLabel(%q) = %q, want %q", dir, got, want)
+		}
+	}
+}

@@ -445,19 +445,3 @@ func TestAddFromEmptyMenu(t *testing.T) {
 		t.Errorf("a should work from the empty state, got %+v", got)
 	}
 }
-
-func TestSuggestLabel(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	cases := map[string]string{
-		filepath.Join(home, ".config", "nvim"): "NVIM",
-		filepath.Join(home, "bashconfig"):      "BASHCONFIG",
-		home:                                   "HOME",
-		"/":                                    "ROOT",
-	}
-	for dir, want := range cases {
-		if got := suggestLabel(dir); got != want {
-			t.Errorf("suggestLabel(%q) = %q, want %q", dir, got, want)
-		}
-	}
-}

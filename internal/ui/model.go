@@ -234,7 +234,7 @@ func (m Model) startAdd() (tea.Model, tea.Cmd) {
 	}
 	m.mode, m.inputErr = modeInput, ""
 	m.input.Reset()
-	m.input.Placeholder = suggestLabel(m.cwd)
+	m.input.Placeholder = config.SuggestLabel(m.cwd)
 	// With Width 0, textinput shows only a placeholder's first letter. Fit the
 	// suggestion; longer labels scroll sideways.
 	m.input.Width = max(len([]rune(m.input.Placeholder))+1, 12)
@@ -292,19 +292,6 @@ func (m Model) add(label string) (tea.Model, tea.Cmd) {
 	insertCmd := m.list.InsertItem(n, item{Bookmark: added})
 	m.list.Select(n)
 	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+added.Label))
-}
-
-// suggestLabel is the label offered for dir: its name in uppercase, like
-// fcd's labels. $HOME suggests HOME, and / suggests ROOT.
-func suggestLabel(dir string) string {
-	dir = filepath.Clean(dir)
-	if home, err := os.UserHomeDir(); err == nil && dir == filepath.Clean(home) {
-		return "HOME"
-	}
-	if dir == string(filepath.Separator) {
-		return "ROOT"
-	}
-	return strings.ToUpper(filepath.Base(dir))
 }
 
 // choose cds to the highlighted bookmark, unless its folder is gone.
