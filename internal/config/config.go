@@ -16,7 +16,12 @@
 // the spec. Suggested TOML library: github.com/BurntSushi/toml.
 package config
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+)
 
 // Bookmark is a saved directory.
 //
@@ -125,10 +130,28 @@ func (c *Config) Add(label, dir string) error {
 // Remove deletes the bookmark whose label matches case-insensitively.
 // If none matches, it returns an error wrapping ErrNotFound.
 func (c *Config) Remove(label string) error {
-	return errNotImplemented
+	i := c.index(label)
+	if i < 0 {
+		return fmt.Errorf("%q: %w", label, ErrNotFound)
+	}
+	c.Bookmarks = slices.Delete(c.Bookmarks, i, i+1)
+	return nil
 }
 
 // Find returns the bookmark whose label matches case-insensitively.
 func (c *Config) Find(label string) (Bookmark, bool) {
-	return Bookmark{}, false
+	i := c.index(label)
+	if i < 0 {
+		return Bookmark{}, false
+	}
+	return c.Bookmarks[i], true
+}
+
+// index returns the position of the first bookmark whose label matches
+// label case-insensitively, ignoring surrounding spaces, or -1 if none does.
+func (c *Config) index(label string) int {
+	label = strings.TrimSpace(label)
+	return slices.IndexFunc(c.Bookmarks, func(b Bookmark) bool {
+		return strings.EqualFold(b.Label, label)
+	})
 }
