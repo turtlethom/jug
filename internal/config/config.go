@@ -20,10 +20,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Bookmark is a saved directory.
@@ -89,7 +93,48 @@ func LegacyPath() (string, error) {
 //   - A file that fails to parse returns an error and is left untouched. Never reset it.
 //   - "~/..." paths are expanded to absolute paths.
 func Load(path string) (*Config, error) {
-	return nil, errNotImplemented
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return &Config{}, nil
+	}
+	if err != nil {
+		return nil, err // already names the file
+	}
+
+	var c Config
+	md, err := toml.Decode(string(data), &c)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	// Save only writes known fields, so an unknown key (a typo, or a field
+	// from a newer jug) would be silently dropped on the next save.
+	if keys := md.Undecoded(); len(keys) > 0 {
+		names := make([]string, len(keys))
+		for i, k := range keys {
+			names[i] = strconv.Quote(k.String())
+		}
+		return nil, fmt.Errorf("%s: unknown key %s", path, strings.Join(names, ", "))
+	}
+
+	for i := range c.Bookmarks {
+		b := &c.Bookmarks[i]
+		b.Label = strings.TrimSpace(b.Label)
+		if b.Label == "" {
+			return nil, fmt.Errorf("%s: bookmark %d: label is empty", path, i+1)
+		}
+		if c.index(b.Label) != i {
+			return nil, fmt.Errorf("%s: bookmark %d (%q): duplicate label", path, i+1, b.Label)
+		}
+		p, err := expandHome(b.Path)
+		if err != nil {
+			return nil, err
+		}
+		if !filepath.IsAbs(p) {
+			return nil, fmt.Errorf("%s: bookmark %d (%q): path %q is not absolute", path, i+1, b.Label, b.Path)
+		}
+		b.Path = filepath.Clean(p)
+	}
+	return &c, nil
 }
 
 // Save writes c to path.

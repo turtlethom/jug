@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -120,6 +121,76 @@ func TestLoadMalformedKeepsFile(t *testing.T) {
 	}
 	if got := readFile(t, path); got != broken {
 		t.Errorf("malformed config was modified:\n%s", got)
+	}
+}
+
+func TestLoadExpandsHome(t *testing.T) {
+	home := setupHome(t)
+	path := filepath.Join(home, ".config", "jug", "config.toml")
+	writeFile(t, path, `
+[[bookmark]]
+label = "HOME"
+path = "~"
+
+[[bookmark]]
+label = "APP"
+path = "~/projects/app/"
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Bookmark{
+		{Label: "HOME", Path: home},
+		{Label: "APP", Path: filepath.Join(home, "projects", "app")},
+	}
+	if !reflect.DeepEqual(cfg.Bookmarks, want) {
+		t.Errorf("got %+v\nwant %+v", cfg.Bookmarks, want)
+	}
+}
+
+// Save only writes known fields, so ignoring a typo like "lable" would
+// silently delete it on the next save.
+func TestLoadRejectsUnknownKeys(t *testing.T) {
+	home := setupHome(t)
+	path := filepath.Join(home, ".config", "jug", "config.toml")
+	writeFile(t, path, "[[bookmark]]\nlable = \"NVIM\"\npath = \"/n\"\n")
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "lable") {
+		t.Errorf("want an error naming the unknown key, got %v", err)
+	}
+}
+
+// A hand-edited file can hold what Add would reject. Missing folders and
+// duplicate paths are allowed; the menu shows them.
+func TestLoadValidates(t *testing.T) {
+	home := setupHome(t)
+	path := filepath.Join(home, ".config", "jug", "config.toml")
+	entry := func(label, p string) string {
+		return fmt.Sprintf("[[bookmark]]\nlabel = %q\npath = %q\n", label, p)
+	}
+
+	bad := []struct{ name, toml string }{
+		{"empty label", entry("  ", "/a")},
+		{"duplicate label", entry("NVIM", "/a") + entry("nvim", "/b")},
+		{"relative path", entry("REL", "projects/app")},
+	}
+	for _, tc := range bad {
+		writeFile(t, path, tc.toml)
+		if _, err := Load(path); err == nil {
+			t.Errorf("%s: Load should fail", tc.name)
+		}
+	}
+
+	writeFile(t, path, entry("GONE", "/does/not/exist")+entry("SAME", "/does/not/exist"))
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("missing folders and duplicate paths should load: %v", err)
+	}
+	if len(cfg.Bookmarks) != 2 {
+		t.Errorf("want 2 bookmarks, got %+v", cfg.Bookmarks)
 	}
 }
 
