@@ -190,7 +190,7 @@ func Save(path string, c *Config) error {
 
 	out := Config{Colors: c.Colors}
 	for _, b := range c.Bookmarks {
-		b.Path = contractHome(b.Path)
+		b.Path = ContractHome(b.Path)
 		out.Bookmarks = append(out.Bookmarks, b)
 	}
 	var buf bytes.Buffer
@@ -231,10 +231,10 @@ func Save(path string, c *Config) error {
 
 const fileHeader = "# Written by jug. Comments are not kept; use group = \"...\" to organize.\n\n"
 
-// contractHome is the reverse of expandHome: the home directory becomes "~"
+// ContractHome is the reverse of expandHome: the home directory becomes "~"
 // and paths inside it become "~/...". Others, or all of them if the home
 // directory is unknown, are returned unchanged.
-func contractHome(p string) string {
+func ContractHome(p string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return p
