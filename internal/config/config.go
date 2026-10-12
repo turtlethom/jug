@@ -17,6 +17,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -151,8 +152,97 @@ func Load(path string) (*Config, error) {
 //   - Paths inside $HOME are written as "~/..." ($HOME itself as "~"). Others
 //     are written as-is. Watch out: /home/tom2 is not inside /home/tom.
 //   - Do not modify c.
+//   - A symlink pointing at a missing file is an error. The written file keeps
+//     the existing file's permissions, or 0644 for a new one.
 func Save(path string, c *Config) error {
-	return errNotImplemented
+	target, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if _, lerr := os.Lstat(path); lerr == nil {
+			return fmt.Errorf("%s is a symlink to a missing file", path)
+		}
+		target, err = path, nil // first save
+	}
+	if err != nil {
+		return err
+	}
+
+	mode := fs.FileMode(0o644)
+	old, err := os.ReadFile(target)
+	switch {
+	case err == nil:
+		info, err := os.Stat(target)
+		if err != nil {
+			return err
+		}
+		mode = info.Mode().Perm()
+		// Never overwrite without a backup.
+		if err := os.WriteFile(path+".bak", old, mode); err != nil {
+			return fmt.Errorf("backing up %s: %w", path, err)
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+
+	out := Config{Colors: c.Colors}
+	for _, b := range c.Bookmarks {
+		b.Path = contractHome(b.Path)
+		out.Bookmarks = append(out.Bookmarks, b)
+	}
+	var buf bytes.Buffer
+	buf.WriteString(fileHeader)
+	enc := toml.NewEncoder(&buf)
+	enc.Indent = "" // match hand-written TOML
+	if err := enc.Encode(out); err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(target)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(target)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // no-op once renamed
+
+	if _, err := tmp.Write(buf.Bytes()); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), target)
+}
+
+const fileHeader = "# Written by jug. Comments are not kept; use group = \"...\" to organize.\n\n"
+
+// contractHome is the reverse of expandHome: the home directory becomes "~"
+// and paths inside it become "~/...". Others, or all of them if the home
+// directory is unknown, are returned unchanged.
+func contractHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	home = filepath.Clean(home)
+	if p == home {
+		return "~"
+	}
+	// The separator keeps /home/tom2 from matching /home/tom.
+	if rest, ok := strings.CutPrefix(p, home+string(filepath.Separator)); ok {
+		return "~/" + rest
+	}
+	return p
 }
 
 // MigrateFCD converts an fcd v1 JSON config into a Config.

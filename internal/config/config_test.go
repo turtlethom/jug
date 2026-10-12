@@ -289,6 +289,63 @@ func TestSaveFollowsSymlink(t *testing.T) {
 	}
 }
 
+func TestSaveContractsOnlyInsideHome(t *testing.T) {
+	home := setupHome(t)
+	path := filepath.Join(home, ".config", "jug", "config.toml")
+	cfg := &Config{Bookmarks: []Bookmark{
+		{Label: "HOME", Path: home},
+		{Label: "SIBLING", Path: home + "2"}, // /home/tom2 is not inside /home/tom
+	}}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	disk := readFile(t, path)
+	if !strings.Contains(disk, `path = "~"`) {
+		t.Errorf("$HOME itself should be written as ~; file:\n%s", disk)
+	}
+	if !strings.Contains(disk, fmt.Sprintf("%q", home+"2")) {
+		t.Errorf("a sibling of $HOME should be written as-is; file:\n%s", disk)
+	}
+}
+
+func TestSaveKeepsPermissions(t *testing.T) {
+	home := setupHome(t)
+	path := filepath.Join(home, ".config", "jug", "config.toml")
+
+	if err := Save(path, &Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o644 {
+		t.Errorf("new config: want 0644, got %v", fi.Mode().Perm())
+	}
+
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, &Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+		t.Errorf("existing 0600 config: want 0600 kept, got %v", fi.Mode().Perm())
+	}
+}
+
+func TestSaveDanglingSymlink(t *testing.T) {
+	home := setupHome(t)
+	link := filepath.Join(mkdir(t, home, ".config", "jug"), "config.toml")
+	missing := filepath.Join(home, "dotfiles", "jug.toml")
+	if err := os.Symlink(missing, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Save(link, &Config{}); err == nil {
+		t.Error("saving through a symlink to a missing file should fail")
+	}
+	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Error("Save created the symlink's missing target")
+	}
+}
+
 // A mistaken clear in the menu must be recoverable by hand.
 func TestSaveKeepsBackup(t *testing.T) {
 	home := setupHome(t)
