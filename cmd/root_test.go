@@ -38,13 +38,13 @@ func newRootEnv(t *testing.T) rootEnv {
 	return rootEnv{home, configPath, legacyPath, cdFile}
 }
 
-func (e rootEnv) run(t *testing.T, menu menuFunc) (stdout, stderr string, err error) {
+func (e rootEnv) run(t *testing.T, menu menuFunc, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	root := newRootCmd(menu)
 	var out, errOut bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&errOut)
-	root.SetArgs(nil)
+	root.SetArgs(args)
 	err = root.Execute()
 	return out.String(), errOut.String(), err
 }
@@ -141,5 +141,180 @@ func TestRootMalformedConfigStopsBeforeMenu(t *testing.T) {
 	b, _ := os.ReadFile(e.configPath)
 	if string(b) != broken {
 		t.Error("the broken config was modified")
+	}
+}
+
+// noMenu fails the test if the menu opens.
+func noMenu(t *testing.T) menuFunc {
+	return func(*config.Config, string) (string, error) {
+		t.Error("the menu should not open")
+		return "", nil
+	}
+}
+
+// withBookmarks saves a jug config with these labels, each pointing at a
+// folder under $HOME. Paths starting with "!" are left missing on disk.
+func (e rootEnv) withBookmarks(t *testing.T, labelsAndPaths ...string) {
+	t.Helper()
+	cfg := &config.Config{}
+	for i := 0; i < len(labelsAndPaths); i += 2 {
+		rel := labelsAndPaths[i+1]
+		missing := strings.HasPrefix(rel, "!")
+		dir := filepath.Join(e.home, strings.TrimPrefix(rel, "!"))
+		if !missing {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cfg.Bookmarks = append(cfg.Bookmarks, config.Bookmark{Label: labelsAndPaths[i], Path: dir})
+	}
+	if err := config.Save(e.configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (e rootEnv) saved(t *testing.T) []config.Bookmark {
+	t.Helper()
+	cfg, err := config.Load(e.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Bookmarks
+}
+
+func TestJumpWritesCDTarget(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NVIM", ".config/nvim", "Day Job", "work")
+
+	if _, _, err := e.run(t, noMenu(t), "nvim"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.cdTarget(t), filepath.Join(e.home, ".config", "nvim"); got != want {
+		t.Errorf("jug nvim: cd file %q, want %q", got, want)
+	}
+
+	// Words are joined, so labels with spaces need no quotes.
+	if _, _, err := e.run(t, noMenu(t), "day", "job"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.cdTarget(t), filepath.Join(e.home, "work"); got != want {
+		t.Errorf("jug day job: cd file %q, want %q", got, want)
+	}
+}
+
+func TestJumpUnknownLabel(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NVIM", ".config/nvim")
+	_, _, err := e.run(t, noMenu(t), "nvm")
+	if err == nil || !strings.Contains(err.Error(), `no bookmark "nvm" (see 'jug ls')`) {
+		t.Errorf("want a no-bookmark error, got %v", err)
+	}
+	if e.cdTarget(t) != "" {
+		t.Error("an unknown label must not cd")
+	}
+}
+
+func TestJumpMissingFolder(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "OLD", "!old/project")
+	_, _, err := e.run(t, noMenu(t), "old")
+	if err == nil || !strings.Contains(err.Error(), "~/old/project no longer exists") {
+		t.Errorf("want a missing-folder error, got %v", err)
+	}
+	if e.cdTarget(t) != "" {
+		t.Error("a missing folder must not cd")
+	}
+}
+
+func TestAddSuggestsLabel(t *testing.T) {
+	e := newRootEnv(t)
+	dir := filepath.Join(e.home, "projects", "app")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	_, stderr, err := e.run(t, noMenu(t), "add")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.saved(t); len(got) != 1 || got[0].Label != "APP" {
+		t.Errorf("want APP saved, got %+v", got)
+	}
+	if !strings.Contains(stderr, "jug: added APP → ~/projects/app") {
+		t.Errorf("want a confirmation on stderr, got %q", stderr)
+	}
+}
+
+func TestAddTypedLabelAndDuplicate(t *testing.T) {
+	e := newRootEnv(t)
+	dir := filepath.Join(e.home, "work")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	if _, _, err := e.run(t, noMenu(t), "add", "Day", "Job"); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.saved(t); len(got) != 1 || got[0].Label != "Day Job" {
+		t.Errorf("want the typed label as-is, got %+v", got)
+	}
+	_, _, err := e.run(t, noMenu(t), "add", "OTHER")
+	if err == nil || !strings.Contains(err.Error(), `already saved as "Day Job"`) {
+		t.Errorf("adding the same folder twice should fail, got %v", err)
+	}
+}
+
+func TestAddReservedLabelWarnsButSaves(t *testing.T) {
+	e := newRootEnv(t)
+	t.Chdir(e.home)
+	_, stderr, err := e.run(t, noMenu(t), "add", "init")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.saved(t); len(got) != 1 || got[0].Label != "init" {
+		t.Errorf("the bookmark should still be saved, got %+v", got)
+	}
+	if !strings.Contains(stderr, `"init" is also a command`) || !strings.Contains(stderr, "'jug INIT'") {
+		t.Errorf("want the reserved-label note, got %q", stderr)
+	}
+}
+
+// In tests stdout is a buffer, like a pipe: tab-separated absolute paths.
+func TestLsPiped(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NVIM", ".config/nvim", "GONE", "!old")
+	stdout, _, err := e.run(t, noMenu(t), "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "NVIM\t" + filepath.Join(e.home, ".config", "nvim") + "\nGONE\t" + filepath.Join(e.home, "old") + "\n"
+	if stdout != want {
+		t.Errorf("got %q\nwant %q", stdout, want)
+	}
+}
+
+func TestLsTerminalFormat(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NVIM", ".config/nvim", "OLDPROJ", "!old/project")
+	got := formatList(e.saved(t))
+	want := "NVIM     ~/.config/nvim\nOLDPROJ  ~/old/project  (missing)\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestCompletesLabels(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NVIM", ".config/nvim", "NOTES", "notes")
+	stdout, _, err := e.run(t, noMenu(t), "__complete", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, label := range []string{"NVIM", "NOTES"} {
+		if !strings.Contains(stdout, label+"\n") {
+			t.Errorf("completions should include %s, got %q", label, stdout)
+		}
 	}
 }
