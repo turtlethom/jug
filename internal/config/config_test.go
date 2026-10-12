@@ -470,6 +470,26 @@ func TestLoadOrMigrate(t *testing.T) {
 			t.Error("a fresh install should not create a config file until something is saved")
 		}
 	})
+
+	// Saving it would leave a jug config that the next startup refuses.
+	t.Run("bad fcd config is not saved", func(t *testing.T) {
+		home := setupHome(t)
+		path := filepath.Join(home, ".config", "jug", "config.toml")
+		legacy := filepath.Join(home, ".config", "fcd", "fcd_config.json")
+		bad := `{"shortcuts":[{"label":"NVIM","path":"/a"},{"label":"nvim","path":"/b"}]}`
+		writeFile(t, legacy, bad)
+
+		_, _, err := LoadOrMigrate(path, legacy)
+		if err == nil || !strings.Contains(err.Error(), legacy) {
+			t.Errorf("want an error naming the fcd file, got %v", err)
+		}
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Error("a rejected migration must not create a jug config")
+		}
+		if readFile(t, legacy) != bad {
+			t.Error("legacy file must be left untouched")
+		}
+	})
 }
 
 func TestAdd(t *testing.T) {

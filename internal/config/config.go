@@ -11,9 +11,7 @@
 //	[colors]
 //	primary = "#56B6C2"
 //
-// TODO(you): every function below is a stub. Make the tests in
-// config_test.go pass (`go test ./internal/config/`). The doc comments are
-// the spec. Suggested TOML library: github.com/BurntSushi/toml.
+// The doc comments are the spec, and config_test.go checks them.
 package config
 
 import (
@@ -59,8 +57,6 @@ var (
 	ErrDuplicate = errors.New("bookmark already exists")
 	// ErrNotFound means no bookmark has the given label.
 	ErrNotFound = errors.New("bookmark not found")
-
-	errNotImplemented = errors.New("not implemented")
 )
 
 // DefaultPath returns where jug's config lives: $XDG_CONFIG_HOME/jug/config.toml
@@ -116,26 +112,35 @@ func Load(path string) (*Config, error) {
 		}
 		return nil, fmt.Errorf("%s: unknown key %s", path, strings.Join(names, ", "))
 	}
+	if err := validate(&c); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return &c, nil
+}
 
+// validate rejects what Add would never store (empty or duplicate labels,
+// relative paths) and normalizes the rest: labels are trimmed, and paths are
+// expanded and cleaned. Missing folders and duplicate paths are allowed.
+func validate(c *Config) error {
 	for i := range c.Bookmarks {
 		b := &c.Bookmarks[i]
 		b.Label = strings.TrimSpace(b.Label)
 		if b.Label == "" {
-			return nil, fmt.Errorf("%s: bookmark %d: label is empty", path, i+1)
+			return fmt.Errorf("bookmark %d: label is empty", i+1)
 		}
 		if c.index(b.Label) != i {
-			return nil, fmt.Errorf("%s: bookmark %d (%q): duplicate label", path, i+1, b.Label)
+			return fmt.Errorf("bookmark %d (%q): duplicate label", i+1, b.Label)
 		}
 		p, err := expandHome(b.Path)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if !filepath.IsAbs(p) {
-			return nil, fmt.Errorf("%s: bookmark %d (%q): path %q is not absolute", path, i+1, b.Label, b.Path)
+			return fmt.Errorf("bookmark %d (%q): path %q is not absolute", i+1, b.Label, b.Path)
 		}
 		b.Path = filepath.Clean(p)
 	}
-	return &c, nil
+	return nil
 }
 
 // Save writes c to path.
@@ -294,8 +299,33 @@ type fcdConfig struct {
 //   - Otherwise, if legacyPath exists, MigrateFCD it, Save the result to path,
 //     and report migrated = true.
 //   - Otherwise, return an empty Config without creating any file.
+//   - A migrated config that Load would reject is not saved; the error names
+//     legacyPath so the user knows which file to fix.
 func LoadOrMigrate(path, legacyPath string) (cfg *Config, migrated bool, err error) {
-	return nil, false, errNotImplemented
+	// Load treats a missing file as empty, so check existence first.
+	// Stat follows symlinks: a dangling one counts as missing, and Save
+	// reports it below.
+	if _, err := os.Stat(path); err == nil {
+		cfg, err := Load(path)
+		return cfg, false, err
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, false, err
+	}
+
+	cfg, err = MigrateFCD(legacyPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return &Config{}, false, nil // fresh install
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if err := validate(cfg); err != nil {
+		return nil, false, fmt.Errorf("migrating fcd config %s: %w", legacyPath, err)
+	}
+	if err := Save(path, cfg); err != nil {
+		return nil, false, err
+	}
+	return cfg, true, nil
 }
 
 // Add appends a bookmark.
