@@ -139,7 +139,51 @@ func LoadOrMigrate(path, legacyPath string) (cfg *Config, migrated bool, err err
 //   - A label that matches an existing one case-insensitively, or a path that
 //     matches an existing one, fails with an error wrapping ErrDuplicate.
 func (c *Config) Add(label, dir string) error {
-	return errNotImplemented
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return errors.New("label is empty")
+	}
+
+	path, err := expandHome(dir)
+	if err != nil {
+		return err
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+
+	if c.index(label) >= 0 {
+		return fmt.Errorf("label %q: %w", label, ErrDuplicate)
+	}
+	for _, b := range c.Bookmarks {
+		if b.Path == path {
+			return fmt.Errorf("%s is already saved as %q: %w", path, b.Label, ErrDuplicate)
+		}
+	}
+
+	c.Bookmarks = append(c.Bookmarks, Bookmark{Label: label, Path: path})
+	return nil
+}
+
+// expandHome replaces a leading "~" or "~/" in p with the home directory.
+// Anything else, including "~user/...", is returned unchanged.
+func expandHome(p string) (string, error) {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, p[1:]), nil
 }
 
 // Remove deletes the bookmark whose label matches case-insensitively.
