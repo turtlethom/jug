@@ -7,14 +7,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/turtlethom/jug/internal/config"
+	"github.com/turtlethom/pathpin/internal/config"
 )
 
 func newAddCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "add [label]",
 		Short: "Bookmark the current directory",
-		Long: `Bookmark the current directory. Without a label, jug uses the folder's
+		Long: `Bookmark the current directory. Without a label, pathpin uses the folder's
 name in uppercase (~/.config/nvim becomes NVIM).`,
 		Args: cobra.ArbitraryArgs, // words of a label, joined with spaces
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -39,10 +39,10 @@ name in uppercase (~/.config/nvim becomes NVIM).`,
 
 			b := cfg.Bookmarks[len(cfg.Bookmarks)-1]
 			errOut := cmd.ErrOrStderr()
-			fmt.Fprintf(errOut, "jug: added %s → %s\n", b.Label, config.ContractHome(b.Path))
+			fmt.Fprintf(errOut, "pathpin: added %s → %s\n", b.Label, config.ContractHome(b.Path))
 			if name, ok := commandNamed(cmd.Root(), b.Label); ok {
-				fmt.Fprintf(errOut, "jug: note: %q is also a command, so 'jug %s' won't jump here.\n"+
-					"     Use the menu, or type it in another case: 'jug %s'.\n",
+				fmt.Fprintf(errOut, "pathpin: note: %q is also a command, so 'pathpin %s' won't jump here.\n"+
+					"     Use the menu, or type it in another case: 'pathpin %s'.\n",
 					b.Label, name, otherCase(b.Label))
 			}
 			return nil

@@ -1,4 +1,4 @@
-module github.com/turtlethom/jug
+module github.com/turtlethom/pathpin
 
 go 1.25.4
 

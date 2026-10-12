@@ -1,4 +1,4 @@
-// Package cmd defines jug's command-line interface.
+// Package cmd defines pathpin's command-line interface.
 package cmd
 
 import (
@@ -10,31 +10,31 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/turtlethom/jug/internal/config"
-	"github.com/turtlethom/jug/internal/shell"
-	"github.com/turtlethom/jug/internal/ui"
+	"github.com/turtlethom/pathpin/internal/config"
+	"github.com/turtlethom/pathpin/internal/shell"
+	"github.com/turtlethom/pathpin/internal/ui"
 )
 
 // menuFunc shows the menu and returns the chosen directory, or "" on quit.
 // Tests pass a fake, since the real menu needs a terminal.
 type menuFunc func(cfg *config.Config, configPath string) (string, error)
 
-// NewRootCmd builds the jug command tree.
+// NewRootCmd builds the pathpin command tree.
 func NewRootCmd() *cobra.Command {
 	return newRootCmd(ui.Run)
 }
 
 func newRootCmd(menu menuFunc) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "jug [label]",
-		Short: "jug — grab your directories",
-		Long: `jug is a bookmark-first directory navigator.
+		Use:   "pathpin [label]",
+		Short: "pathpin — pin your paths",
+		Long: `pathpin is a bookmark-first directory navigator.
 
-Run 'jug' to open the menu, or 'jug <label>' to jump straight to a bookmark.
-Set up your shell first: see 'jug init --help'.`,
+Run 'pathpin' to open the menu, or 'pathpin <label>' to jump straight to a bookmark.
+Set up your shell first: see 'pathpin init --help'.`,
 		Args:          cobra.ArbitraryArgs, // words of a label, joined with spaces
 		SilenceUsage:  true,
-		SilenceErrors: true, // Execute prints them with a "jug:" prefix
+		SilenceErrors: true, // Execute prints them with a "pathpin:" prefix
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, path, err := loadConfig(cmd)
 			if err != nil {
@@ -51,7 +51,7 @@ Set up your shell first: see 'jug init --help'.`,
 		},
 		ValidArgsFunction: completeLabels,
 	}
-	// `jug init <shell>` prints completions along with the wrapper, so the
+	// `pathpin init <shell>` prints completions along with the wrapper, so the
 	// default completion command is only needed for debugging.
 	root.CompletionOptions.HiddenDefaultCmd = true
 
@@ -59,15 +59,15 @@ Set up your shell first: see 'jug init --help'.`,
 	return root
 }
 
-// Execute runs jug and prints any error as "jug: <err>".
+// Execute runs pathpin and prints any error as "pathpin: <err>".
 func Execute() {
 	if err := NewRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "jug:", err)
+		fmt.Fprintln(os.Stderr, "pathpin:", err)
 		os.Exit(1)
 	}
 }
 
-// loadConfig loads jug's config, migrating fcd's on the first run of any
+// loadConfig loads pathpin's config, migrating fcd's on the first run of any
 // command, and returns it with the path to save it to.
 func loadConfig(cmd *cobra.Command) (*config.Config, string, error) {
 	path, err := config.DefaultPath()
@@ -84,7 +84,7 @@ func loadConfig(cmd *cobra.Command) (*config.Config, string, error) {
 	}
 	// Printed before the menu's alternate screen opens, so it shows once the menu closes.
 	if migrated {
-		fmt.Fprintf(cmd.ErrOrStderr(), "jug: imported %d bookmarks from %s (left in place)\n",
+		fmt.Fprintf(cmd.ErrOrStderr(), "pathpin: imported %d bookmarks from %s (left in place)\n",
 			len(cfg.Bookmarks), config.ContractHome(legacy))
 	}
 	return cfg, path, nil
@@ -94,7 +94,7 @@ func loadConfig(cmd *cobra.Command) (*config.Config, string, error) {
 func jump(cmd *cobra.Command, cfg *config.Config, label string) error {
 	b, ok := cfg.Find(label)
 	if !ok {
-		return fmt.Errorf("no bookmark %q (see 'jug ls')", label)
+		return fmt.Errorf("no bookmark %q (see 'pathpin ls')", label)
 	}
 	if !isDir(b.Path) {
 		return fmt.Errorf("%s no longer exists", config.ContractHome(b.Path))
@@ -109,14 +109,14 @@ func handoff(cmd *cobra.Command, dir string) error {
 		return err
 	}
 	// Without the wrapper, the path was just printed and nothing seems to
-	// happen. Skip the hint for `cd "$(jug)"`, where stdout is captured.
+	// happen. Skip the hint for `cd "$(pathpin)"`, where stdout is captured.
 	if os.Getenv(shell.CDFileEnv) == "" && isTerminal(out) {
 		fmt.Fprint(cmd.ErrOrStderr(), integrationHint())
 	}
 	return nil
 }
 
-// completeLabels completes `jug <TAB>` with bookmark labels. It only reads the
+// completeLabels completes `pathpin <TAB>` with bookmark labels. It only reads the
 // config: migrating (and printing about it) mid-completion would be surprising.
 func completeLabels(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	path, err := config.DefaultPath()
@@ -150,14 +150,14 @@ func isTerminal(w io.Writer) bool {
 
 // integrationHint tells the user how to set up the wrapper for their shell.
 func integrationHint() string {
-	const intro = "jug: shell integration isn't set up, so jug can't change your directory.\n"
+	const intro = "pathpin: shell integration isn't set up, so pathpin can't change your directory.\n"
 	switch filepath.Base(os.Getenv("SHELL")) {
 	case "bash":
-		return intro + "     Add this to ~/.bashrc:  eval \"$(jug init bash)\"\n"
+		return intro + "     Add this to ~/.bashrc:  eval \"$(pathpin init bash)\"\n"
 	case "zsh":
-		return intro + "     Add this to ~/.zshrc:  eval \"$(jug init zsh)\"\n"
+		return intro + "     Add this to ~/.zshrc:  eval \"$(pathpin init zsh)\"\n"
 	case "fish":
-		return intro + "     Add this to ~/.config/fish/config.fish:  jug init fish | source\n"
+		return intro + "     Add this to ~/.config/fish/config.fish:  pathpin init fish | source\n"
 	}
-	return intro + "     See 'jug init --help'.\n"
+	return intro + "     See 'pathpin init --help'.\n"
 }

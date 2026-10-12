@@ -4,5 +4,5 @@ notes/
 test/
 
 # build output
-/jug
+/pathpin
 /dist/

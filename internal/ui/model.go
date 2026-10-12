@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/turtlethom/jug/internal/config"
+	"github.com/turtlethom/pathpin/internal/config"
 )
 
 // mode is what the menu is doing right now. Update and View switch on it, so
@@ -43,7 +43,7 @@ type pending struct {
 
 const emptyMessage = "No bookmarks yet — press a to add this directory"
 
-// Model is the jug menu.
+// Model is the pathpin menu.
 type Model struct {
 	mode       mode
 	list       list.Model
@@ -53,7 +53,7 @@ type Model struct {
 	chosen     string // set only by enter, so quitting never cds
 	pending    pending
 
-	cwd      string // the directory jug was launched from; a adds it
+	cwd      string // the directory pathpin was launched from; a adds it
 	input    textinput.Model
 	inputErr string // shown beside the label field until the next key
 
@@ -71,7 +71,7 @@ func New(cfg *config.Config, configPath string) Model {
 	d.Styles = s.item
 
 	l := list.New(itemsFrom(cfg), d, 0, 0)
-	l.Title = "jug"
+	l.Title = "pathpin"
 	l.Styles.Title = s.title
 	l.Styles.StatusBar = s.status
 	l.Styles.StatusEmpty = s.status
@@ -79,7 +79,7 @@ func New(cfg *config.Config, configPath string) Model {
 	l.FilterInput.Cursor.Style = s.filter
 	l.SetStatusBarItemName("bookmark", "bookmarks")
 	l.StatusMessageLifetime = 3 * time.Second
-	// Add jug's own keys to the list's ? help.
+	// Add pathpin's own keys to the list's ? help.
 	actionKeys := func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
@@ -315,7 +315,7 @@ func (m Model) View() string {
 	body := m.list.View()
 	if len(m.list.Items()) == 0 {
 		// Same title bar as the list draws, so the title doesn't jump when it empties.
-		body = m.list.Styles.TitleBar.Render(m.styles.title.Render("jug")) + "\n" + m.styles.empty.Render(emptyMessage) + "\n"
+		body = m.list.Styles.TitleBar.Render(m.styles.title.Render("pathpin")) + "\n" + m.styles.empty.Render(emptyMessage) + "\n"
 	}
 	return m.styles.app.Render(body + "\n" + m.bottomLine())
 }

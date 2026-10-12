@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/turtlethom/jug/internal/shell"
+	"github.com/turtlethom/pathpin/internal/shell"
 )
 
-func runJug(t *testing.T, args ...string) (string, error) {
+func runPathpin(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	root := NewRootCmd()
 	var out bytes.Buffer
@@ -21,29 +21,29 @@ func runJug(t *testing.T, args ...string) (string, error) {
 
 func TestInit(t *testing.T) {
 	completion := map[string]string{
-		"bash": "__start_jug",
-		"zsh":  "compdef _jug jug",
-		"fish": "complete -c jug",
+		"bash": "__start_pathpin",
+		"zsh":  "compdef _pathpin pathpin",
+		"fish": "complete -c pathpin",
 	}
 	for _, sh := range shell.Shells() {
-		out, err := runJug(t, "init", sh)
+		out, err := runPathpin(t, "init", sh)
 		if err != nil {
-			t.Fatalf("jug init %s: %v", sh, err)
+			t.Fatalf("pathpin init %s: %v", sh, err)
 		}
 		if !strings.Contains(out, shell.CDFileEnv) {
-			t.Errorf("jug init %s: missing wrapper function", sh)
+			t.Errorf("pathpin init %s: missing wrapper function", sh)
 		}
 		if !strings.Contains(out, completion[sh]) {
-			t.Errorf("jug init %s: missing completions (%q)", sh, completion[sh])
+			t.Errorf("pathpin init %s: missing completions (%q)", sh, completion[sh])
 		}
 	}
 }
 
 func TestInitRejectsUnknownShell(t *testing.T) {
-	if _, err := runJug(t, "init", "powershell"); err == nil {
-		t.Error("jug init powershell should fail")
+	if _, err := runPathpin(t, "init", "powershell"); err == nil {
+		t.Error("pathpin init powershell should fail")
 	}
-	if _, err := runJug(t, "init"); err == nil {
-		t.Error("jug init with no shell should fail")
+	if _, err := runPathpin(t, "init"); err == nil {
+		t.Error("pathpin init with no shell should fail")
 	}
 }

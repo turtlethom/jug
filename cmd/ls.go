@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/turtlethom/jug/internal/config"
+	"github.com/turtlethom/pathpin/internal/config"
 )
 
 func newLsCmd() *cobra.Command {
@@ -15,7 +15,7 @@ func newLsCmd() *cobra.Command {
 		Use:   "ls",
 		Short: "List bookmarks",
 		Long: `List bookmarks. In a terminal, paths show ~ and missing folders are marked.
-Piped, each line is LABEL<tab>/absolute/path, so 'jug ls | cut -f2' gives paths.`,
+Piped, each line is LABEL<tab>/absolute/path, so 'pathpin ls | cut -f2' gives paths.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _, err := loadConfig(cmd)
@@ -30,7 +30,7 @@ Piped, each line is LABEL<tab>/absolute/path, so 'jug ls | cut -f2' gives paths.
 				return nil
 			}
 			if len(cfg.Bookmarks) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "No bookmarks yet — run 'jug add' in a folder")
+				fmt.Fprintln(cmd.ErrOrStderr(), "No bookmarks yet — run 'pathpin add' in a folder")
 				return nil
 			}
 			_, err = fmt.Fprint(out, formatList(cfg.Bookmarks))

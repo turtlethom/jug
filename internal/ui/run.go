@@ -1,4 +1,4 @@
-// Package ui is jug's Bubble Tea menu.
+// Package ui is pathpin's Bubble Tea menu.
 package ui
 
 import (
@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/turtlethom/jug/internal/config"
+	"github.com/turtlethom/pathpin/internal/config"
 )
 
 // Run shows the menu and returns the chosen directory, or "" if the user quit.

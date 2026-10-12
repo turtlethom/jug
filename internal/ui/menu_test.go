@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/turtlethom/jug/internal/config"
+	"github.com/turtlethom/pathpin/internal/config"
 )
 
 // These tests call Update and View directly: a Bubble Tea model is just a
@@ -32,7 +32,7 @@ func newTestModel(t *testing.T, bookmarks ...config.Bookmark) Model {
 		}
 	}
 	cfg := &config.Config{Bookmarks: bookmarks}
-	configPath := filepath.Join(home, ".config", "jug", "config.toml")
+	configPath := filepath.Join(home, ".config", "pathpin", "config.toml")
 	if err := config.Save(configPath, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestClearConfirmed(t *testing.T) {
 		t.Error("the file should be empty")
 	}
 	view := m.View()
-	if !strings.Contains(view, emptyMessage) || !strings.Contains(view, "Cleared 2 bookmarks. Backup: ~/.config/jug/config.toml.bak") {
+	if !strings.Contains(view, emptyMessage) || !strings.Contains(view, "Cleared 2 bookmarks. Backup: ~/.config/pathpin/config.toml.bak") {
 		t.Errorf("want the empty state and the backup path:\n%s", view)
 	}
 	bak, err := config.Load(m.configPath + ".bak")
@@ -318,7 +318,7 @@ func TestFailedSaveKeepsBookmark(t *testing.T) {
 	}
 }
 
-// launchFrom sets the directory jug was "launched" from, creating it under $HOME.
+// launchFrom sets the directory pathpin was "launched" from, creating it under $HOME.
 func launchFrom(t *testing.T, m Model, rel string) (Model, string) {
 	t.Helper()
 	home, err := os.UserHomeDir()

@@ -5,19 +5,19 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/turtlethom/jug/internal/shell"
+	"github.com/turtlethom/pathpin/internal/shell"
 )
 
 func newInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init <bash|zsh|fish>",
-		Short: "Print shell integration (lets jug change your directory)",
-		Long: `Print the shell function and completions that let jug change your
+		Short: "Print shell integration (lets pathpin change your directory)",
+		Long: `Print the shell function and completions that let pathpin change your
 shell's directory. Add one line to your shell config:
 
-  bash   ~/.bashrc                    eval "$(jug init bash)"
-  zsh    ~/.zshrc                     eval "$(jug init zsh)"
-  fish   ~/.config/fish/config.fish   jug init fish | source`,
+  bash   ~/.bashrc                    eval "$(pathpin init bash)"
+  zsh    ~/.zshrc                     eval "$(pathpin init zsh)"
+  fish   ~/.config/fish/config.fish   pathpin init fish | source`,
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		ValidArgs: shell.Shells(),
 		RunE: func(cmd *cobra.Command, args []string) error {

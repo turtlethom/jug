@@ -1,7 +1,7 @@
-// Package config loads, saves, and edits jug's bookmark configuration.
+// Package config loads, saves, and edits pathpin's bookmark configuration.
 //
-// On disk it is TOML at $XDG_CONFIG_HOME/jug/config.toml (falling back to
-// ~/.config/jug/config.toml on both Linux and macOS):
+// On disk it is TOML at $XDG_CONFIG_HOME/pathpin/config.toml (falling back to
+// ~/.config/pathpin/config.toml on both Linux and macOS):
 //
 //	[[bookmark]]
 //	label = "NVIM"
@@ -59,9 +59,9 @@ var (
 	ErrNotFound = errors.New("bookmark not found")
 )
 
-// DefaultPath returns where jug's config lives: $XDG_CONFIG_HOME/jug/config.toml
+// DefaultPath returns where pathpin's config lives: $XDG_CONFIG_HOME/pathpin/config.toml
 // if XDG_CONFIG_HOME is set to an absolute path, otherwise
-// $HOME/.config/jug/config.toml. This is the same on Linux and macOS.
+// $HOME/.config/pathpin/config.toml. This is the same on Linux and macOS.
 func DefaultPath() (string, error) {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if !filepath.IsAbs(base) {
@@ -71,7 +71,7 @@ func DefaultPath() (string, error) {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "jug", "config.toml"), nil
+	return filepath.Join(base, "pathpin", "config.toml"), nil
 }
 
 // LegacyPath returns where fcd v1 kept its config:
@@ -104,7 +104,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	// Save only writes known fields, so an unknown key (a typo, or a field
-	// from a newer jug) would be silently dropped on the next save.
+	// from a newer pathpin) would be silently dropped on the next save.
 	if keys := md.Undecoded(); len(keys) > 0 {
 		names := make([]string, len(keys))
 		for i, k := range keys {
@@ -229,7 +229,7 @@ func Save(path string, c *Config) error {
 	return os.Rename(tmp.Name(), target)
 }
 
-const fileHeader = "# Written by jug. Comments are not kept; use group = \"...\" to organize.\n\n"
+const fileHeader = "# Written by pathpin. Comments are not kept; use group = \"...\" to organize.\n\n"
 
 // ContractHome is the reverse of expandHome: the home directory becomes "~"
 // and paths inside it become "~/...". Others, or all of them if the home
@@ -293,7 +293,7 @@ type fcdConfig struct {
 	} `json:"userColors"`
 }
 
-// LoadOrMigrate is what jug calls on startup.
+// LoadOrMigrate is what pathpin calls on startup.
 //
 //   - If path exists, Load it (ignore legacyPath).
 //   - Otherwise, if legacyPath exists, MigrateFCD it, Save the result to path,

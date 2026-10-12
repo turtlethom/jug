@@ -52,7 +52,7 @@ func TestDefaultPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(home, ".config", "jug", "config.toml"); got != want {
+	if want := filepath.Join(home, ".config", "pathpin", "config.toml"); got != want {
 		t.Errorf("without XDG_CONFIG_HOME: got %q, want %q", got, want)
 	}
 
@@ -62,18 +62,18 @@ func TestDefaultPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(xdg, "jug", "config.toml"); got != want {
+	if want := filepath.Join(xdg, "pathpin", "config.toml"); got != want {
 		t.Errorf("with XDG_CONFIG_HOME: got %q, want %q", got, want)
 	}
 
 	// The XDG spec says to ignore relative paths. Honoring one would move
-	// the config depending on where jug was launched from.
+	// the config depending on where pathpin was launched from.
 	t.Setenv("XDG_CONFIG_HOME", "relative/config")
 	got, err = DefaultPath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(home, ".config", "jug", "config.toml"); got != want {
+	if want := filepath.Join(home, ".config", "pathpin", "config.toml"); got != want {
 		t.Errorf("with relative XDG_CONFIG_HOME: got %q, want %q", got, want)
 	}
 }
@@ -95,7 +95,7 @@ func TestLegacyPath(t *testing.T) {
 
 func TestLoadMissingFile(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -112,7 +112,7 @@ func TestLoadMissingFile(t *testing.T) {
 // The v1 bug: a broken config was replaced with an empty one, losing every bookmark.
 func TestLoadMalformedKeepsFile(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 	broken := "[[bookmark]]\nlabel = \"NVIM\"\npath = \n"
 	writeFile(t, path, broken)
 
@@ -126,7 +126,7 @@ func TestLoadMalformedKeepsFile(t *testing.T) {
 
 func TestLoadExpandsHome(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 	writeFile(t, path, `
 [[bookmark]]
 label = "HOME"
@@ -154,7 +154,7 @@ path = "~/projects/app/"
 // silently delete it on the next save.
 func TestLoadRejectsUnknownKeys(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 	writeFile(t, path, "[[bookmark]]\nlable = \"NVIM\"\npath = \"/n\"\n")
 
 	_, err := Load(path)
@@ -167,7 +167,7 @@ func TestLoadRejectsUnknownKeys(t *testing.T) {
 // duplicate paths are allowed; the menu shows them.
 func TestLoadValidates(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 	entry := func(label, p string) string {
 		return fmt.Sprintf("[[bookmark]]\nlabel = %q\npath = %q\n", label, p)
 	}
@@ -196,7 +196,7 @@ func TestLoadValidates(t *testing.T) {
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 	outside := t.TempDir() // not under $HOME
 
 	want := &Config{
@@ -257,9 +257,9 @@ func TestSaveCreatesDirsAndLeavesNoTempFiles(t *testing.T) {
 // Dotfiles users symlink their config into a repo. Saving must not replace the link.
 func TestSaveFollowsSymlink(t *testing.T) {
 	home := setupHome(t)
-	real := filepath.Join(home, "dotfiles", "jug.toml")
+	real := filepath.Join(home, "dotfiles", "pathpin.toml")
 	writeFile(t, real, "")
-	link := filepath.Join(mkdir(t, home, ".config", "jug"), "config.toml")
+	link := filepath.Join(mkdir(t, home, ".config", "pathpin"), "config.toml")
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestSaveFollowsSymlink(t *testing.T) {
 
 func TestSaveContractsOnlyInsideHome(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 	cfg := &Config{Bookmarks: []Bookmark{
 		{Label: "HOME", Path: home},
 		{Label: "SIBLING", Path: home + "2"}, // /home/tom2 is not inside /home/tom
@@ -310,7 +310,7 @@ func TestSaveContractsOnlyInsideHome(t *testing.T) {
 
 func TestSaveKeepsPermissions(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 
 	if err := Save(path, &Config{}); err != nil {
 		t.Fatal(err)
@@ -332,8 +332,8 @@ func TestSaveKeepsPermissions(t *testing.T) {
 
 func TestSaveDanglingSymlink(t *testing.T) {
 	home := setupHome(t)
-	link := filepath.Join(mkdir(t, home, ".config", "jug"), "config.toml")
-	missing := filepath.Join(home, "dotfiles", "jug.toml")
+	link := filepath.Join(mkdir(t, home, ".config", "pathpin"), "config.toml")
+	missing := filepath.Join(home, "dotfiles", "pathpin.toml")
 	if err := os.Symlink(missing, link); err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestSaveDanglingSymlink(t *testing.T) {
 // A mistaken clear in the menu must be recoverable by hand.
 func TestSaveKeepsBackup(t *testing.T) {
 	home := setupHome(t)
-	path := filepath.Join(home, ".config", "jug", "config.toml")
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
 
 	first := &Config{Bookmarks: []Bookmark{{Label: "FIRST", Path: home}}}
 	if err := Save(path, first); err != nil {
@@ -412,7 +412,7 @@ func TestMigrateFCD(t *testing.T) {
 func TestLoadOrMigrate(t *testing.T) {
 	t.Run("new config wins", func(t *testing.T) {
 		home := setupHome(t)
-		path := filepath.Join(home, ".config", "jug", "config.toml")
+		path := filepath.Join(home, ".config", "pathpin", "config.toml")
 		legacy := filepath.Join(home, ".config", "fcd", "fcd_config.json")
 		if err := Save(path, &Config{Bookmarks: []Bookmark{{Label: "NEW", Path: home}}}); err != nil {
 			t.Fatal(err)
@@ -424,13 +424,13 @@ func TestLoadOrMigrate(t *testing.T) {
 			t.Fatal(err)
 		}
 		if migrated || len(cfg.Bookmarks) != 1 || cfg.Bookmarks[0].Label != "NEW" {
-			t.Errorf("want the existing jug config, got migrated=%v %+v", migrated, cfg)
+			t.Errorf("want the existing pathpin config, got migrated=%v %+v", migrated, cfg)
 		}
 	})
 
 	t.Run("migrates fcd once", func(t *testing.T) {
 		home := setupHome(t)
-		path := filepath.Join(home, ".config", "jug", "config.toml")
+		path := filepath.Join(home, ".config", "pathpin", "config.toml")
 		legacy := filepath.Join(home, ".config", "fcd", "fcd_config.json")
 		writeFile(t, legacy, fcdJSON)
 
@@ -456,7 +456,7 @@ func TestLoadOrMigrate(t *testing.T) {
 
 	t.Run("fresh install", func(t *testing.T) {
 		home := setupHome(t)
-		path := filepath.Join(home, ".config", "jug", "config.toml")
+		path := filepath.Join(home, ".config", "pathpin", "config.toml")
 		legacy := filepath.Join(home, ".config", "fcd", "fcd_config.json")
 
 		cfg, migrated, err := LoadOrMigrate(path, legacy)
@@ -471,10 +471,10 @@ func TestLoadOrMigrate(t *testing.T) {
 		}
 	})
 
-	// Saving it would leave a jug config that the next startup refuses.
+	// Saving it would leave a pathpin config that the next startup refuses.
 	t.Run("bad fcd config is not saved", func(t *testing.T) {
 		home := setupHome(t)
-		path := filepath.Join(home, ".config", "jug", "config.toml")
+		path := filepath.Join(home, ".config", "pathpin", "config.toml")
 		legacy := filepath.Join(home, ".config", "fcd", "fcd_config.json")
 		bad := `{"shortcuts":[{"label":"NVIM","path":"/a"},{"label":"nvim","path":"/b"}]}`
 		writeFile(t, legacy, bad)
@@ -484,7 +484,7 @@ func TestLoadOrMigrate(t *testing.T) {
 			t.Errorf("want an error naming the fcd file, got %v", err)
 		}
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-			t.Error("a rejected migration must not create a jug config")
+			t.Error("a rejected migration must not create a pathpin config")
 		}
 		if readFile(t, legacy) != bad {
 			t.Error("legacy file must be left untouched")

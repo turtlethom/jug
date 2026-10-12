@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/turtlethom/jug/internal/config"
-	"github.com/turtlethom/jug/internal/shell"
+	"github.com/turtlethom/pathpin/internal/config"
+	"github.com/turtlethom/pathpin/internal/shell"
 )
 
-// rootEnv points jug at a fresh $HOME and sets up a cd file the way the
+// rootEnv points pathpin at a fresh $HOME and sets up a cd file the way the
 // shell wrapper does (an empty temp file).
 type rootEnv struct {
 	home, configPath, legacyPath, cdFile string
@@ -152,7 +152,7 @@ func noMenu(t *testing.T) menuFunc {
 	}
 }
 
-// withBookmarks saves a jug config with these labels, each pointing at a
+// withBookmarks saves a pathpin config with these labels, each pointing at a
 // folder under $HOME. Paths starting with "!" are left missing on disk.
 func (e rootEnv) withBookmarks(t *testing.T, labelsAndPaths ...string) {
 	t.Helper()
@@ -190,7 +190,7 @@ func TestJumpWritesCDTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got, want := e.cdTarget(t), filepath.Join(e.home, ".config", "nvim"); got != want {
-		t.Errorf("jug nvim: cd file %q, want %q", got, want)
+		t.Errorf("pathpin nvim: cd file %q, want %q", got, want)
 	}
 
 	// Words are joined, so labels with spaces need no quotes.
@@ -198,7 +198,7 @@ func TestJumpWritesCDTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got, want := e.cdTarget(t), filepath.Join(e.home, "work"); got != want {
-		t.Errorf("jug day job: cd file %q, want %q", got, want)
+		t.Errorf("pathpin day job: cd file %q, want %q", got, want)
 	}
 }
 
@@ -206,7 +206,7 @@ func TestJumpUnknownLabel(t *testing.T) {
 	e := newRootEnv(t)
 	e.withBookmarks(t, "NVIM", ".config/nvim")
 	_, _, err := e.run(t, noMenu(t), "nvm")
-	if err == nil || !strings.Contains(err.Error(), `no bookmark "nvm" (see 'jug ls')`) {
+	if err == nil || !strings.Contains(err.Error(), `no bookmark "nvm" (see 'pathpin ls')`) {
 		t.Errorf("want a no-bookmark error, got %v", err)
 	}
 	if e.cdTarget(t) != "" {
@@ -241,7 +241,7 @@ func TestAddSuggestsLabel(t *testing.T) {
 	if got := e.saved(t); len(got) != 1 || got[0].Label != "APP" {
 		t.Errorf("want APP saved, got %+v", got)
 	}
-	if !strings.Contains(stderr, "jug: added APP → ~/projects/app") {
+	if !strings.Contains(stderr, "pathpin: added APP → ~/projects/app") {
 		t.Errorf("want a confirmation on stderr, got %q", stderr)
 	}
 }
@@ -276,7 +276,7 @@ func TestAddReservedLabelWarnsButSaves(t *testing.T) {
 	if got := e.saved(t); len(got) != 1 || got[0].Label != "init" {
 		t.Errorf("the bookmark should still be saved, got %+v", got)
 	}
-	if !strings.Contains(stderr, `"init" is also a command`) || !strings.Contains(stderr, "'jug INIT'") {
+	if !strings.Contains(stderr, `"init" is also a command`) || !strings.Contains(stderr, "'pathpin INIT'") {
 		t.Errorf("want the reserved-label note, got %q", stderr)
 	}
 }

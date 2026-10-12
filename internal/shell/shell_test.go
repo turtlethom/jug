@@ -15,8 +15,8 @@ func TestScript(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Script(%q): %v", sh, err)
 		}
-		if !strings.Contains(s, CDFileEnv) || !strings.Contains(s, "command jug") {
-			t.Errorf("Script(%q) does not use %s and `command jug`", sh, CDFileEnv)
+		if !strings.Contains(s, CDFileEnv) || !strings.Contains(s, "command pathpin") {
+			t.Errorf("Script(%q) does not use %s and `command pathpin`", sh, CDFileEnv)
 		}
 	}
 	if _, err := Script("powershell"); err == nil {
@@ -55,15 +55,15 @@ func TestWriteCDTarget(t *testing.T) {
 	})
 }
 
-// fakeJug stands in for the real binary: it echoes its args, exits 3 on
+// fakePathpin stands in for the real binary: it echoes its args, exits 3 on
 // "fail", and otherwise writes $TARGET to the cd file.
-const fakeJug = `#!/bin/sh
+const fakePathpin = `#!/bin/sh
 echo "out:$*"
 if [ "$1" = "fail" ]; then exit 3; fi
-printf '%s' "$TARGET" > "$JUG_CD_FILE"
+printf '%s' "$TARGET" > "$PATHPIN_CD_FILE"
 `
 
-// TestWrapper runs the real wrapper in each installed shell against fakeJug.
+// TestWrapper runs the real wrapper in each installed shell against fakePathpin.
 func TestWrapper(t *testing.T) {
 	shells := map[string][]string{
 		"bash": {"--noprofile", "--norc", "-c"},
@@ -71,7 +71,7 @@ func TestWrapper(t *testing.T) {
 		"fish": {"--no-config", "-c"},
 	}
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "jug"), []byte(fakeJug), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "pathpin"), []byte(fakePathpin), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	target, err := filepath.EvalSymlinks(t.TempDir())
@@ -101,7 +101,7 @@ func TestWrapper(t *testing.T) {
 				return string(out)
 			}
 
-			out := run(`jug hello; echo "pwd:$PWD"`)
+			out := run(`pathpin hello; echo "pwd:$PWD"`)
 			if !strings.Contains(out, "out:hello") {
 				t.Errorf("binary stdout not passed through:\n%s", out)
 			}
@@ -113,7 +113,7 @@ func TestWrapper(t *testing.T) {
 			if sh == "fish" {
 				status = "$status"
 			}
-			out = run(`jug fail; echo "status:` + status + `"; echo "pwd:$PWD"`)
+			out = run(`pathpin fail; echo "status:` + status + `"; echo "pwd:$PWD"`)
 			if !strings.Contains(out, "status:3") {
 				t.Errorf("exit status not propagated:\n%s", out)
 			}
