@@ -18,6 +18,7 @@ type Styles struct {
 	prompt  lipgloss.Style // y/N prompts on the bottom line
 	note    lipgloss.Style // messages on the bottom line
 	errText lipgloss.Style // errors on the bottom line
+	muted   lipgloss.Style // hints and placeholders
 	item    list.DefaultItemStyles
 	missing list.DefaultItemStyles // rows whose folder is gone
 }
@@ -62,6 +63,7 @@ func NewStyles(c config.Colors) Styles {
 		prompt:  lipgloss.NewStyle().Foreground(primary).Bold(true).Padding(0, 0, 0, 2),
 		note:    lipgloss.NewStyle().Foreground(text).Padding(0, 0, 0, 2),
 		errText: lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Padding(0, 0, 0, 2),
+		muted:   lipgloss.NewStyle().Foreground(muted),
 		item:    item,
 		missing: missing,
 	}

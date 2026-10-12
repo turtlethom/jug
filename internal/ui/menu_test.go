@@ -317,3 +317,147 @@ func TestFailedSaveKeepsBookmark(t *testing.T) {
 		t.Error("the error should clear on the next key")
 	}
 }
+
+// launchFrom sets the directory jug was "launched" from, creating it under $HOME.
+func launchFrom(t *testing.T, m Model, rel string) (Model, string) {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, rel)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m.cwd = dir
+	return m, dir
+}
+
+func TestAddUsesSuggestedLabel(t *testing.T) {
+	m, dir := launchFrom(t, twoBookmarks(t), "projects/app")
+	m, _ = press(m, runes("a"))
+	if m.mode != modeInput || !strings.Contains(m.View(), "APP") {
+		t.Fatalf("a should open the field suggesting APP:\n%s", m.View())
+	}
+	// Don't run commands from here on: they include the status message's timer.
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	got := onDisk(t, m)
+	if len(got) != 3 || got[2].Label != "APP" || got[2].Path != dir {
+		t.Errorf("want APP appended for %s, got %+v", dir, got)
+	}
+	if sel, _ := m.list.SelectedItem().(item); sel.Label != "APP" {
+		t.Errorf("the new row should be selected, got %q", sel.Label)
+	}
+	if m.mode != modeBrowse || !strings.Contains(m.View(), "Added APP") {
+		t.Errorf("want browse mode and an Added status:\n%s", m.View())
+	}
+}
+
+func TestAddTypedLabelIsKeptAsTyped(t *testing.T) {
+	m, _ := launchFrom(t, twoBookmarks(t), "work")
+	m, _ = press(m, runes("a"))
+	m, _ = press(m, runes("Day Job"))
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if got := onDisk(t, m); len(got) != 3 || got[2].Label != "Day Job" {
+		t.Errorf("want the typed label as-is, got %+v", got)
+	}
+}
+
+// In the field, q, r and c are letters, and esc cancels without saving.
+func TestAddFieldTypesLettersAndEscCancels(t *testing.T) {
+	m, _ := launchFrom(t, twoBookmarks(t), "work")
+	m, _ = press(m, runes("a"))
+	for _, k := range []string{"q", "r", "c"} {
+		m, _ = press(m, runes(k))
+	}
+	if m.mode != modeInput || m.input.Value() != "qrc" {
+		t.Errorf("want q, r, c typed into the field, got mode %v, value %q", m.mode, m.input.Value())
+	}
+	m, cmd := press(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeBrowse || cmd != nil || len(onDisk(t, m)) != 2 {
+		t.Error("esc should cancel without saving or quitting")
+	}
+}
+
+func TestAddAlreadySavedFolder(t *testing.T) {
+	m := twoBookmarks(t)
+	m.cwd = m.cfg.Bookmarks[1].Path // NOTES
+	m, _ = press(m, runes("a"))
+	if m.mode != modeBrowse {
+		t.Error("a should not open the field for a folder that's already saved")
+	}
+	if sel, _ := m.list.SelectedItem().(item); sel.Label != "NOTES" {
+		t.Errorf("the existing bookmark should be selected, got %q", sel.Label)
+	}
+	if !strings.Contains(m.View(), "This folder is already saved as NOTES") {
+		t.Errorf("want the already-saved message:\n%s", m.View())
+	}
+}
+
+// A duplicate label can be fixed in place.
+func TestAddDuplicateLabelKeepsFieldOpen(t *testing.T) {
+	m, _ := launchFrom(t, twoBookmarks(t), "editor")
+	m, _ = press(m, runes("a"))
+	m, _ = press(m, runes("nvim"))
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.mode != modeInput || !strings.Contains(m.View(), "already exists") {
+		t.Fatalf("want the field open with the error:\n%s", m.View())
+	}
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyCtrlU}) // clear the field
+	m, _ = press(m, runes("EDITOR"))
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if got := onDisk(t, m); len(got) != 3 || got[2].Label != "EDITOR" {
+		t.Errorf("want EDITOR added after fixing the label, got %+v", got)
+	}
+}
+
+func TestAddFromMissingFolder(t *testing.T) {
+	m := twoBookmarks(t)
+	m.cwd = filepath.Join(t.TempDir(), "deleted")
+	m, _ = press(m, runes("a"))
+	if m.mode != modeBrowse || !strings.Contains(m.View(), "can't add: current folder no longer exists") {
+		t.Errorf("want an error instead of the field:\n%s", m.View())
+	}
+}
+
+func TestAddFailedSaveKeepsList(t *testing.T) {
+	m, _ := launchFrom(t, twoBookmarks(t), "work")
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.configPath = filepath.Join(blocker, "config.toml")
+	m, _ = press(m, runes("a"))
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if len(m.list.Items()) != 2 || len(m.cfg.Bookmarks) != 2 {
+		t.Error("a failed save should not add the row")
+	}
+	if m.mode != modeInput || !strings.Contains(m.View(), "couldn't save") {
+		t.Errorf("want the field open with the save error:\n%s", m.View())
+	}
+}
+
+func TestAddFromEmptyMenu(t *testing.T) {
+	m, _ := launchFrom(t, newTestModel(t), "first")
+	m, _ = press(m, runes("a"))
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if got := onDisk(t, m); len(got) != 1 || got[0].Label != "FIRST" {
+		t.Errorf("a should work from the empty state, got %+v", got)
+	}
+}
+
+func TestSuggestLabel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cases := map[string]string{
+		filepath.Join(home, ".config", "nvim"): "NVIM",
+		filepath.Join(home, "bashconfig"):      "BASHCONFIG",
+		home:                                   "HOME",
+		"/":                                    "ROOT",
+	}
+	for dir, want := range cases {
+		if got := suggestLabel(dir); got != want {
+			t.Errorf("suggestLabel(%q) = %q, want %q", dir, got, want)
+		}
+	}
+}

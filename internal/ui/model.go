@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/turtlethom/jug/internal/config"
@@ -21,7 +24,7 @@ type mode int
 const (
 	modeBrowse  mode = iota // the list is active and keys trigger actions
 	modeConfirm             // a y/N prompt is showing; only y confirms
-	// modeInput arrives in step 5.
+	modeInput               // typing a label for a new bookmark
 )
 
 // confirmAction is what a y/N prompt will do if confirmed.
@@ -50,6 +53,10 @@ type Model struct {
 	chosen     string // set only by enter, so quitting never cds
 	pending    pending
 
+	cwd      string // the directory jug was launched from; a adds it
+	input    textinput.Model
+	inputErr string // shown beside the label field until the next key
+
 	// message is shown on the bottom line until the next key.
 	message    string
 	messageErr bool
@@ -75,6 +82,7 @@ func New(cfg *config.Config, configPath string) Model {
 	// Add jug's own keys to the list's ? help.
 	actionKeys := func() []key.Binding {
 		return []key.Binding{
+			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 			key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "remove")),
 			key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear")),
 		}
@@ -82,7 +90,15 @@ func New(cfg *config.Config, configPath string) Model {
 	l.AdditionalShortHelpKeys = actionKeys
 	l.AdditionalFullHelpKeys = actionKeys
 
-	return Model{mode: modeBrowse, list: l, styles: s, cfg: cfg, configPath: configPath}
+	in := textinput.New()
+	in.Prompt = "Label: "
+	in.CharLimit = 40
+	in.PromptStyle = s.filter
+	in.Cursor.Style = s.filter
+	in.PlaceholderStyle = s.muted
+
+	cwd, _ := os.Getwd() // "" if it fails; a then reports the folder is gone
+	return Model{mode: modeBrowse, list: l, styles: s, cfg: cfg, configPath: configPath, cwd: cwd, input: in}
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -106,6 +122,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateBrowse(msg)
 	case modeConfirm:
 		return m.updateConfirm(msg)
+	case modeInput:
+		return m.updateInput(msg)
 	}
 	return m, nil
 }
@@ -134,6 +152,8 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode, m.pending = modeConfirm, pending{action: confirmClear}
 			}
 			return m, nil
+		case "a":
+			return m.startAdd()
 		}
 	}
 	var cmd tea.Cmd
@@ -196,6 +216,97 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// startAdd opens the label field for the launch directory, unless that
+// directory is gone or already saved.
+func (m Model) startAdd() (tea.Model, tea.Cmd) {
+	if m.cwd == "" || !isDir(m.cwd) {
+		m.message, m.messageErr = "can't add: current folder no longer exists", true
+		return m, nil
+	}
+	// Asking for a label that would then be rejected wastes the user's time.
+	for i, b := range m.cfg.Bookmarks {
+		if b.Path == filepath.Clean(m.cwd) {
+			m.list.ResetFilter()
+			m.list.Select(i)
+			m.message = "This folder is already saved as " + b.Label
+			return m, nil
+		}
+	}
+	m.mode, m.inputErr = modeInput, ""
+	m.input.Reset()
+	m.input.Placeholder = suggestLabel(m.cwd)
+	// With Width 0, textinput shows only a placeholder's first letter. Fit the
+	// suggestion; longer labels scroll sideways.
+	m.input.Width = max(len([]rune(m.input.Placeholder))+1, 12)
+	return m, m.input.Focus()
+}
+
+// updateInput handles the label field: enter saves, esc cancels, and every
+// other key is typed (so q, r and c are just letters here).
+func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "esc":
+			m.mode = modeBrowse
+			m.input.Blur()
+			return m, nil
+		case "enter":
+			label := strings.TrimSpace(m.input.Value())
+			if label == "" {
+				label = m.input.Placeholder
+			}
+			return m.add(label)
+		}
+		m.inputErr = ""
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+	// Not a key: the cursor blink belongs to the field, status timeouts to the list.
+	var inCmd, listCmd tea.Cmd
+	m.input, inCmd = m.input.Update(msg)
+	m.list, listCmd = m.list.Update(msg)
+	return m, tea.Batch(inCmd, listCmd)
+}
+
+// add saves a bookmark for the launch directory. Errors keep the field open
+// so the label can be fixed.
+func (m Model) add(label string) (tea.Model, tea.Cmd) {
+	next := &config.Config{Colors: m.cfg.Colors, Bookmarks: slices.Clone(m.cfg.Bookmarks)}
+	if err := next.Add(label, m.cwd); err != nil {
+		m.inputErr = err.Error()
+		return m, nil
+	}
+	if err := config.Save(m.configPath, next); err != nil {
+		m.inputErr = "couldn't save: " + err.Error()
+		return m, nil
+	}
+
+	m.cfg = next
+	m.mode = modeBrowse
+	m.input.Blur()
+	added := next.Bookmarks[len(next.Bookmarks)-1]
+	// Clear any filter so the new row is visible, then select it.
+	m.list.ResetFilter()
+	n := len(m.list.Items())
+	insertCmd := m.list.InsertItem(n, item{Bookmark: added})
+	m.list.Select(n)
+	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+added.Label))
+}
+
+// suggestLabel is the label offered for dir: its name in uppercase, like
+// fcd's labels. $HOME suggests HOME, and / suggests ROOT.
+func suggestLabel(dir string) string {
+	dir = filepath.Clean(dir)
+	if home, err := os.UserHomeDir(); err == nil && dir == filepath.Clean(home) {
+		return "HOME"
+	}
+	if dir == string(filepath.Separator) {
+		return "ROOT"
+	}
+	return strings.ToUpper(filepath.Base(dir))
+}
+
 // choose cds to the highlighted bookmark, unless its folder is gone.
 func (m Model) choose() (tea.Model, tea.Cmd) {
 	it, ok := m.list.SelectedItem().(item)
@@ -229,6 +340,12 @@ func (m Model) bottomLine() string {
 		return m.styles.prompt.Render(fmt.Sprintf("Remove %s? y/N", m.pending.label))
 	case m.mode == modeConfirm && m.pending.action == confirmClear:
 		return m.styles.prompt.Render(fmt.Sprintf("Delete all %d bookmarks? y/N", len(m.cfg.Bookmarks)))
+	case m.mode == modeInput:
+		hint := m.styles.muted.Render("enter save · esc cancel")
+		if m.inputErr != "" {
+			hint = m.styles.errText.UnsetPadding().Render(m.inputErr)
+		}
+		return m.styles.note.Render(m.input.View() + "    " + hint)
 	case m.messageErr:
 		return m.styles.errText.Render(m.message)
 	}
