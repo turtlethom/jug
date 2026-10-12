@@ -122,7 +122,7 @@ func CreateFCDMenuComponent(items []list.Item, styles Styles) list.Model {
 	list.FilterInput.PromptStyle = styles.FilterPrompt
 	list.FilterInput.Cursor.Style = styles.FilterCursor
 	// Manages The Title Of The List
-	list.Title = styles.MainTitle.Render("FCD - Shortcut Menu")
+	list.Title = styles.MainTitle.Render("jug")
 
 	return list
 }
