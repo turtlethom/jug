@@ -78,6 +78,10 @@ func Load(path string) (*Config, error) {
 //     to and leave the symlink in place.
 //   - Write atomically: write a temp file in the same directory, then rename it
 //     over the target. Leave no temp files behind.
+//   - If a config already exists, first copy its contents to path + ".bak",
+//     replacing any older backup. The backup is a regular file next to path,
+//     even when path is a symlink, so a dotfiles repo doesn't collect backups.
+//     The first save of a new config makes no backup.
 //   - Paths inside $HOME are written as "~/..." ($HOME itself as "~"). Others
 //     are written as-is. Watch out: /home/tom2 is not inside /home/tom.
 //   - Do not modify c.

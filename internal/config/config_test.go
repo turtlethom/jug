@@ -197,6 +197,45 @@ func TestSaveFollowsSymlink(t *testing.T) {
 	if !strings.Contains(readFile(t, real), "HOME") {
 		t.Error("Save did not write through the symlink to the real file")
 	}
+
+	// The backup goes next to the link, not into the dotfiles repo.
+	if fi, err := os.Lstat(link + ".bak"); err != nil || !fi.Mode().IsRegular() {
+		t.Errorf("want a regular backup file at %s (err: %v)", link+".bak", err)
+	}
+	if _, err := os.Stat(real + ".bak"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Save left a backup in the dotfiles repo (stat err: %v)", err)
+	}
+}
+
+// A mistaken clear in the menu must be recoverable by hand.
+func TestSaveKeepsBackup(t *testing.T) {
+	home := setupHome(t)
+	path := filepath.Join(home, ".config", "jug", "config.toml")
+
+	first := &Config{Bookmarks: []Bookmark{{Label: "FIRST", Path: home}}}
+	if err := Save(path, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path + ".bak"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("first save of a new config should make no backup (stat err: %v)", err)
+	}
+
+	before := readFile(t, path)
+	if err := Save(path, &Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path+".bak"); got != before {
+		t.Errorf("backup should hold the previous config:\n got %q\nwant %q", got, before)
+	}
+
+	// Only one level of backup: the next save replaces it.
+	before = readFile(t, path)
+	if err := Save(path, first); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path+".bak"); got != before {
+		t.Errorf("second backup should replace the first:\n got %q\nwant %q", got, before)
+	}
 }
 
 const fcdJSON = `{
