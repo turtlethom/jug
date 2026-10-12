@@ -15,6 +15,9 @@ type Styles struct {
 	status  lipgloss.Style
 	empty   lipgloss.Style
 	filter  lipgloss.Style // filter prompt and cursor
+	prompt  lipgloss.Style // y/N prompts on the bottom line
+	note    lipgloss.Style // messages on the bottom line
+	errText lipgloss.Style // errors on the bottom line
 	item    list.DefaultItemStyles
 	missing list.DefaultItemStyles // rows whose folder is gone
 }
@@ -54,8 +57,11 @@ func NewStyles(c config.Colors) Styles {
 		app:     lipgloss.NewStyle().Padding(1, 1, 0, 1),
 		title:   lipgloss.NewStyle().Foreground(primary).Bold(true),
 		status:  lipgloss.NewStyle().Foreground(muted).Padding(0, 0, 1, 2),
-		empty:   lipgloss.NewStyle().Foreground(muted).Padding(1, 0, 0, 2),
+		empty:   lipgloss.NewStyle().Foreground(muted).Padding(0, 0, 0, 2),
 		filter:  lipgloss.NewStyle().Foreground(primary),
+		prompt:  lipgloss.NewStyle().Foreground(primary).Bold(true).Padding(0, 0, 0, 2),
+		note:    lipgloss.NewStyle().Foreground(text).Padding(0, 0, 0, 2),
+		errText: lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Padding(0, 0, 0, 2),
 		item:    item,
 		missing: missing,
 	}
