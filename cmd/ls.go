@@ -10,12 +10,13 @@ import (
 	"github.com/turtlethom/pathpin/internal/config"
 )
 
-func newLsCmd() *cobra.Command {
+// newLsCmd builds `ls`; name is what the user types, for the help text.
+func newLsCmd(name string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "List bookmarks",
-		Long: `List bookmarks. In a terminal, paths show ~ and missing folders are marked.
-Piped, each line is LABEL<tab>/absolute/path, so 'pathpin ls | cut -f2' gives paths.`,
+		Long: fmt.Sprintf(`List bookmarks. In a terminal, paths show ~ and missing folders are marked.
+Piped, each line is LABEL<tab>/absolute/path, so '%s ls | cut -f2' gives paths.`, name),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _, err := loadConfig(cmd)
@@ -30,7 +31,7 @@ Piped, each line is LABEL<tab>/absolute/path, so 'pathpin ls | cut -f2' gives pa
 				return nil
 			}
 			if len(cfg.Bookmarks) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "No bookmarks yet — run 'pathpin add' in a folder")
+				fmt.Fprintf(cmd.ErrOrStderr(), "No bookmarks yet — run '%s add' in a folder\n", cmd.Root().Name())
 				return nil
 			}
 			_, err = fmt.Fprint(out, formatList(cfg.Bookmarks))

@@ -35,6 +35,7 @@ func newRootEnv(t *testing.T) rootEnv {
 		t.Fatal(err)
 	}
 	t.Setenv(shell.CDFileEnv, cdFile)
+	t.Setenv(shell.CmdEnv, "") // the default name, unless a test picks one
 	return rootEnv{home, configPath, legacyPath, cdFile}
 }
 
@@ -316,5 +317,23 @@ func TestCompletesLabels(t *testing.T) {
 		if !strings.Contains(stdout, label+"\n") {
 			t.Errorf("completions should include %s, got %q", label, stdout)
 		}
+	}
+}
+
+// With --cmd pp, the wrapper sets PATHPIN_CMD=pp and messages use it.
+func TestMessagesUseChosenName(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NVIM", ".config/nvim")
+	t.Setenv(shell.CmdEnv, "pp")
+	_, _, err := e.run(t, noMenu(t), "nvm")
+	if err == nil || !strings.Contains(err.Error(), "(see 'pp ls')") {
+		t.Errorf("want the error to name pp, got %v", err)
+	}
+	stdout, _, err := e.run(t, noMenu(t), "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "pp [label]") || !strings.Contains(stdout, "pathpin init --help") {
+		t.Errorf("help should use pp, but setup instructions the binary name:\n%s", stdout)
 	}
 }

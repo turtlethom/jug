@@ -9,7 +9,8 @@ import (
 )
 
 func newInitCmd() *cobra.Command {
-	return &cobra.Command{
+	var name string
+	c := &cobra.Command{
 		Use:   "init <bash|zsh|fish>",
 		Short: "Print shell integration (lets pathpin change your directory)",
 		Long: `Print the shell function and completions that let pathpin change your
@@ -17,11 +18,15 @@ shell's directory. Add one line to your shell config:
 
   bash   ~/.bashrc                    eval "$(pathpin init bash)"
   zsh    ~/.zshrc                     eval "$(pathpin init zsh)"
-  fish   ~/.config/fish/config.fish   pathpin init fish | source`,
+  fish   ~/.config/fish/config.fish   pathpin init fish | source
+
+The command is called pathpin unless you pick a name with --cmd, for example
+eval "$(pathpin init bash --cmd pp)". The function shadows any command with
+the same name in interactive shells.`,
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		ValidArgs: shell.Shells(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			script, err := shell.Script(args[0])
+			script, err := shell.Script(args[0], name)
 			if err != nil {
 				return err
 			}
@@ -30,7 +35,9 @@ shell's directory. Add one line to your shell config:
 				return err
 			}
 
+			// Completions register for the name the user will type.
 			root := cmd.Root()
+			root.Use = name + " [label]"
 			switch args[0] {
 			case "bash":
 				return root.GenBashCompletionV2(out, true)
@@ -49,4 +56,6 @@ shell's directory. Add one line to your shell config:
 			return nil
 		},
 	}
+	c.Flags().StringVar(&name, "cmd", shell.DefaultCmd, "name of the shell command to define")
+	return c
 }

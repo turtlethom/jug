@@ -25,16 +25,18 @@ func NewRootCmd() *cobra.Command {
 }
 
 func newRootCmd(menu menuFunc) *cobra.Command {
+	// The name the user types: pathpin, or whatever they chose with init --cmd.
+	name := shell.CmdName()
 	root := &cobra.Command{
-		Use:   "pathpin [label]",
+		Use:   name + " [label]",
 		Short: "pathpin — pin your paths",
-		Long: `pathpin is a bookmark-first directory navigator.
+		Long: fmt.Sprintf(`pathpin is a bookmark-first directory navigator.
 
-Run 'pathpin' to open the menu, or 'pathpin <label>' to jump straight to a bookmark.
-Set up your shell first: see 'pathpin init --help'.`,
+Run '%[1]s' to open the menu, or '%[1]s <label>' to jump straight to a bookmark.
+Set up your shell first: see 'pathpin init --help'.`, name),
 		Args:          cobra.ArbitraryArgs, // words of a label, joined with spaces
 		SilenceUsage:  true,
-		SilenceErrors: true, // Execute prints them with a "pathpin:" prefix
+		SilenceErrors: true, // Execute prints them with a "<name>:" prefix
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, path, err := loadConfig(cmd)
 			if err != nil {
@@ -55,14 +57,15 @@ Set up your shell first: see 'pathpin init --help'.`,
 	// default completion command is only needed for debugging.
 	root.CompletionOptions.HiddenDefaultCmd = true
 
-	root.AddCommand(newInitCmd(), newAddCmd(), newLsCmd())
+	root.AddCommand(newInitCmd(), newAddCmd(), newLsCmd(name))
 	return root
 }
 
-// Execute runs pathpin and prints any error as "pathpin: <err>".
+// Execute runs pathpin and prints any error as "<name>: <err>", using the
+// name the user types.
 func Execute() {
 	if err := NewRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "pathpin:", err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", shell.CmdName(), err)
 		os.Exit(1)
 	}
 }
@@ -84,8 +87,8 @@ func loadConfig(cmd *cobra.Command) (*config.Config, string, error) {
 	}
 	// Printed before the menu's alternate screen opens, so it shows once the menu closes.
 	if migrated {
-		fmt.Fprintf(cmd.ErrOrStderr(), "pathpin: imported %d bookmarks from %s (left in place)\n",
-			len(cfg.Bookmarks), config.ContractHome(legacy))
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: imported %d bookmarks from %s (left in place)\n",
+			cmd.Root().Name(), len(cfg.Bookmarks), config.ContractHome(legacy))
 	}
 	return cfg, path, nil
 }
@@ -94,7 +97,7 @@ func loadConfig(cmd *cobra.Command) (*config.Config, string, error) {
 func jump(cmd *cobra.Command, cfg *config.Config, label string) error {
 	b, ok := cfg.Find(label)
 	if !ok {
-		return fmt.Errorf("no bookmark %q (see 'pathpin ls')", label)
+		return fmt.Errorf("no bookmark %q (see '%s ls')", label, cmd.Root().Name())
 	}
 	if !isDir(b.Path) {
 		return fmt.Errorf("%s no longer exists", config.ContractHome(b.Path))

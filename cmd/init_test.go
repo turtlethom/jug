@@ -47,3 +47,26 @@ func TestInitRejectsUnknownShell(t *testing.T) {
 		t.Error("pathpin init with no shell should fail")
 	}
 }
+
+func TestInitCmdNamesFunctionAndCompletions(t *testing.T) {
+	completion := map[string]string{
+		"bash": "__start_pp",
+		"zsh":  "compdef _pp pp",
+		"fish": "complete -c pp",
+	}
+	for _, sh := range shell.Shells() {
+		out, err := runPathpin(t, "init", sh, "--cmd", "pp")
+		if err != nil {
+			t.Fatalf("pathpin init %s --cmd pp: %v", sh, err)
+		}
+		if !strings.Contains(out, shell.CmdEnv+"=pp") || !strings.Contains(out, "command pathpin") {
+			t.Errorf("%s: want a pp function that runs pathpin", sh)
+		}
+		if !strings.Contains(out, completion[sh]) {
+			t.Errorf("%s: completions should register for pp (%q)", sh, completion[sh])
+		}
+	}
+	if _, err := runPathpin(t, "init", "bash", "--cmd", "p p"); err == nil {
+		t.Error("an invalid --cmd should fail")
+	}
+}
