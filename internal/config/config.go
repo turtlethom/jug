@@ -17,6 +17,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -117,7 +118,39 @@ func Save(path string, c *Config) error {
 // Keep every bookmark even if its directory no longer exists, and never modify
 // or delete the JSON file.
 func MigrateFCD(jsonPath string) (*Config, error) {
-	return nil, errNotImplemented
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return nil, fmt.Errorf("migrating fcd config %s: %w", jsonPath, err)
+	}
+	var v1 fcdConfig
+	if err := json.Unmarshal(data, &v1); err != nil {
+		return nil, fmt.Errorf("migrating fcd config %s: %w", jsonPath, err)
+	}
+
+	c := &Config{
+		Colors: Colors{
+			Primary:   v1.UserColors.Primary,
+			Secondary: v1.UserColors.Secondary,
+			Tertiary:  v1.UserColors.Tertiary,
+		},
+	}
+	for _, s := range v1.Shortcuts {
+		c.Bookmarks = append(c.Bookmarks, Bookmark{Label: s.Label, Path: s.Path})
+	}
+	return c, nil
+}
+
+// fcdConfig mirrors fcd v1's JSON so the public types stay TOML-only.
+type fcdConfig struct {
+	Shortcuts []struct {
+		Label string `json:"label"`
+		Path  string `json:"path"`
+	} `json:"shortcuts"`
+	UserColors struct {
+		Primary   string `json:"primary"`
+		Secondary string `json:"secondary"`
+		Tertiary  string `json:"tertiary"`
+	} `json:"userColors"`
 }
 
 // LoadOrMigrate is what jug calls on startup.
