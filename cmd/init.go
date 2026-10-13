@@ -40,11 +40,22 @@ the same name in interactive shells.`,
 			root.Use = name + " [label]"
 			switch args[0] {
 			case "bash":
-				return root.GenBashCompletionV2(out, true)
+				// The wrapper works in zsh too, but bash completions break on
+				// every Tab there, so skip them and say which line to use.
+				fmt.Fprintln(out, `if [ -n "${ZSH_VERSION-}" ]; then`)
+				fmt.Fprintf(out, "    printf '%%s\\n' '%s' >&2\n", wrongShellHint("bash", "zsh", name))
+				fmt.Fprintln(out, "else")
+				if err := root.GenBashCompletionV2(out, true); err != nil {
+					return err
+				}
+				_, err := fmt.Fprintln(out, "fi")
+				return err
 			case "zsh":
-				// compdef only exists after compinit; skip completions rather
-				// than print an error on every shell start.
-				fmt.Fprintln(out, "if (( $+functions[compdef] )); then")
+				// Likewise in bash. compdef only exists after compinit; skip
+				// completions rather than print an error on every shell start.
+				fmt.Fprintln(out, `if [ -n "${BASH_VERSION-}" ]; then`)
+				fmt.Fprintf(out, "    printf '%%s\\n' '%s' >&2\n", wrongShellHint("zsh", "bash", name))
+				fmt.Fprintln(out, "elif (( $+functions[compdef] )); then")
 				if err := root.GenZshCompletion(out); err != nil {
 					return err
 				}
@@ -58,4 +69,15 @@ the same name in interactive shells.`,
 	}
 	c.Flags().StringVar(&name, "cmd", shell.DefaultCmd, "name of the shell command to define")
 	return c
+}
+
+// wrongShellHint is the line the integration for shell `from` prints when
+// shell `to` loads it, giving the setup line to use there. It goes inside
+// single quotes, which is safe because shell.ValidateCmd already checked name.
+func wrongShellHint(from, to, name string) string {
+	setup := "pathpin init " + to
+	if name != shell.DefaultCmd {
+		setup += " --cmd " + name
+	}
+	return fmt.Sprintf(`pathpin: this is the %s integration; in %s use: eval "$(%s)"`, from, to, setup)
 }
