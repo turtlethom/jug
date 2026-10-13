@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/turtlethom/pathpin/internal/config"
 )
@@ -67,12 +68,15 @@ type Model struct {
 func New(cfg *config.Config, configPath string) Model {
 	s := NewStyles(cfg.Colors)
 
-	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing}
+	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd}
 	d.Styles = s.item
 
 	l := list.New(itemsFrom(cfg), d, 0, 0)
 	l.Title = "pathpin"
 	l.Styles.Title = s.title
+	// One column less than the list's default, so the badge's block lines up
+	// with the selected row's.
+	l.Styles.TitleBar = l.Styles.TitleBar.PaddingLeft(1)
 	l.Styles.StatusBar = s.status
 	l.Styles.StatusEmpty = s.status
 	l.FilterInput.PromptStyle = s.filter
@@ -369,17 +373,106 @@ func (i item) FilterValue() string { return displayLabel(i.Label) }
 // labels as typed, so only use this for text on screen, never for lookups.
 func displayLabel(label string) string { return strings.ToUpper(label) }
 
-// delegate draws missing rows with muted styles and everything else normally.
+// delegate draws each row as its label and path. The list draws the label
+// (selection, filter matches); renderPath draws the path. Missing rows use
+// muted styles.
 type delegate struct {
 	list.DefaultDelegate
 	missing list.DefaultItemStyles
+	pathEnd lipgloss.TerminalColor // a path's last folder
 }
 
+func (d delegate) Height() int { return 2 } // label + path
+
 func (d delegate) Render(w io.Writer, m list.Model, index int, li list.Item) {
-	if it, ok := li.(item); ok && it.missing {
+	it, ok := li.(item)
+	if !ok || m.Width() <= 0 {
+		return
+	}
+	if it.missing {
 		d.Styles = d.missing // d is a copy, so this only affects this row
 	}
+	d.ShowDescription = false
 	d.DefaultDelegate.Render(w, m, index, li)
+	fmt.Fprint(w, "\n"+d.renderPath(m, index, it))
+}
+
+// renderPath draws a row's path in the style the list would use for it, cut to
+// fit, with the last folder in the label color. Missing rows, and every row
+// while the filter field is empty, stay dimmed.
+func (d delegate) renderPath(m list.Model, index int, it item) string {
+	s := d.Styles
+	emptyFilter := m.FilterState() == list.Filtering && m.FilterValue() == ""
+	style := s.NormalDesc
+	switch {
+	case emptyFilter:
+		style = s.DimmedDesc
+	case index == m.Index() && m.FilterState() != list.Filtering:
+		style = s.SelectedDesc
+	}
+
+	path := cutMiddle(it.Description(), m.Width()-s.NormalDesc.GetHorizontalFrameSize())
+	if it.missing || emptyFilter {
+		return style.Render(path)
+	}
+	head, last := splitLast(path)
+	// The head carries the row's padding and bar; the last folder is inline.
+	return style.Render(head) + style.Inline(true).Foreground(d.pathEnd).Render(last)
+}
+
+// splitLast splits a path before its last folder: "~/a/b" → "~/a/", "b".
+// "~" and "/" are all last folder.
+func splitLast(path string) (head, last string) {
+	i := strings.LastIndex(path, "/")
+	if i < 0 || i == len(path)-1 {
+		return "", path
+	}
+	return path[:i+1], path[i+1:]
+}
+
+// cutMiddle fits path into width columns. It keeps the start and the last
+// folder and drops whole folders in between: ~/Desktop/…/pathpin. A last folder
+// too long for that is cut at the end instead: ~/a/xxxxx….
+func cutMiddle(path string, width int) string {
+	if lipgloss.Width(path) <= width {
+		return path
+	}
+	head, last := splitLast(path)
+	tail := "…/" + last
+	room := width - lipgloss.Width(tail)
+	if head == "" || room < 0 {
+		return cutEnd(path, width)
+	}
+	kept := ""
+	for _, folder := range strings.SplitAfter(head, "/") {
+		if lipgloss.Width(kept+folder) > room {
+			break
+		}
+		kept += folder
+	}
+	return kept + tail
+}
+
+// cutEnd fits s into width columns, ending in "…" if it had to cut. It cuts
+// between characters, never inside one.
+func cutEnd(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		w := lipgloss.Width(string(r))
+		if used+w > width-1 {
+			break
+		}
+		b.WriteRune(r)
+		used += w
+	}
+	return b.String() + "…"
 }
 
 func isDir(p string) bool {

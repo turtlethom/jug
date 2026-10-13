@@ -45,12 +45,7 @@ Set up your shell first: see 'pathpin init --help'.`, name),
 			if len(args) > 0 {
 				return jump(cmd, cfg, strings.Join(args, " "))
 			}
-			// Only the menu uses colors, so only warn when it opens. Like the
-			// migration line, this shows once the menu's screen closes.
-			if theme := cfg.Colors.Theme; !ui.KnownTheme(theme) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "%s: unknown theme %q, using terminal. Themes: %s\n",
-					cmd.Root().Name(), theme, strings.Join(ui.ThemeNames(), ", "))
-			}
+			warnAboutColors(cmd, cfg.Colors)
 			dir, err := menu(cfg, path)
 			if err != nil || dir == "" {
 				return err
@@ -97,6 +92,25 @@ func loadConfig(cmd *cobra.Command) (*config.Config, string, error) {
 			cmd.Root().Name(), len(cfg.Bookmarks), config.ContractHome(legacy))
 	}
 	return cfg, path, nil
+}
+
+// warnAboutColors prints one line for an unknown theme and for each [colors]
+// value that isn't a color. The menu falls back for both, and only the menu
+// uses colors, so this runs just before it opens. Like the migration line, it
+// shows once the menu's screen closes.
+func warnAboutColors(cmd *cobra.Command, c config.Colors) {
+	errOut, me := cmd.ErrOrStderr(), cmd.Root().Name()
+	if !ui.KnownTheme(c.Theme) {
+		fmt.Fprintf(errOut, "%s: unknown theme %q, using terminal. Themes: %s\n",
+			me, c.Theme, strings.Join(ui.ThemeNames(), ", "))
+	}
+	for _, bad := range ui.InvalidColors(c) {
+		hint := `Use "#RRGGBB" or a number 0-255.`
+		if ui.KnownTheme(bad.Value) {
+			hint = fmt.Sprintf("Did you mean theme = %q?", bad.Value)
+		}
+		fmt.Fprintf(errOut, "%s: [colors] %s = %q is not a color, ignoring it. %s\n", me, bad.Key, bad.Value, hint)
+	}
 }
 
 // jump cds to the bookmark with this label, without opening the menu.

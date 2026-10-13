@@ -2,9 +2,12 @@ package ui
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/turtlethom/pathpin/internal/config"
 )
 
 // palette is the five colors a theme decides.
@@ -85,4 +88,41 @@ func lookupTheme(name string) (p palette, ok bool) {
 		return p, true
 	}
 	return all[terminalTheme], false
+}
+
+// validColor reports whether lipgloss can draw s: "#RGB", "#RRGGBB", or an
+// ANSI color number 0-255. lipgloss draws anything else as no color at all.
+func validColor(s string) bool {
+	if h, ok := strings.CutPrefix(s, "#"); ok {
+		if len(h) != 3 && len(h) != 6 {
+			return false
+		}
+		_, err := strconv.ParseUint(h, 16, 32)
+		return err == nil
+	}
+	n, err := strconv.Atoi(s)
+	return err == nil && n >= 0 && n <= 255
+}
+
+// BadColor is a [colors] value that isn't a color, which the menu ignores.
+type BadColor struct {
+	Key, Value string // as written in config.toml
+}
+
+// InvalidColors lists the [colors] values that aren't colors, in the order
+// primary, secondary, tertiary, selected_text, error.
+func InvalidColors(c config.Colors) []BadColor {
+	var bad []BadColor
+	for _, kv := range []BadColor{
+		{"primary", c.Primary},
+		{"secondary", c.Secondary},
+		{"tertiary", c.Tertiary},
+		{"selected_text", c.SelectedText},
+		{"error", c.Error},
+	} {
+		if kv.Value != "" && !validColor(kv.Value) {
+			bad = append(bad, kv)
+		}
+	}
+	return bad
 }

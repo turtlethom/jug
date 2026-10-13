@@ -21,6 +21,7 @@ type Styles struct {
 	muted   lipgloss.Style // hints and placeholders
 	item    list.DefaultItemStyles
 	missing list.DefaultItemStyles // rows whose folder is gone
+	pathEnd lipgloss.TerminalColor // a path's last folder: the label color
 }
 
 // NewStyles builds the menu's styles from the user's theme (default:
@@ -33,7 +34,8 @@ type Styles struct {
 //   - selected_text: text on the accent.
 //   - error: errors on the bottom line.
 //
-// An unknown theme gives terminal; cmd warns about it.
+// An unknown theme gives terminal, and a value that isn't a color is ignored;
+// cmd warns about both.
 func NewStyles(c config.Colors) Styles {
 	theme, _ := lookupTheme(c.Theme)
 	primary := pick(c.Primary, theme.accent)
@@ -69,7 +71,7 @@ func NewStyles(c config.Colors) Styles {
 
 	return Styles{
 		app:     lipgloss.NewStyle().Padding(1, 1, 0, 1),
-		title:   lipgloss.NewStyle().Foreground(primary).Bold(true),
+		title:   lipgloss.NewStyle().Foreground(onPrimary).Background(primary).Bold(true).Padding(0, 1), // a badge, like the selected row
 		status:  lipgloss.NewStyle().Foreground(muted).Padding(0, 0, 1, 2),
 		empty:   lipgloss.NewStyle().Foreground(muted).Padding(0, 0, 0, 2),
 		filter:  lipgloss.NewStyle().Foreground(primary),
@@ -79,11 +81,13 @@ func NewStyles(c config.Colors) Styles {
 		muted:   lipgloss.NewStyle().Foreground(muted),
 		item:    item,
 		missing: missing,
+		pathEnd: text,
 	}
 }
 
+// pick is the color set in [colors], or fallback if it's unset or not a color.
 func pick(set string, fallback lipgloss.TerminalColor) lipgloss.TerminalColor {
-	if set != "" {
+	if set != "" && validColor(set) {
 		return lipgloss.Color(set)
 	}
 	return fallback

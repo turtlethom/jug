@@ -101,7 +101,8 @@ selected_text = "#2E3440"  # text on the accent
 error = "#BF616A"          # error messages
 ```
 
-A theme name pathpin doesn't know is reported when the menu closes, and the menu uses `terminal`.
+Mistakes don't break the menu. A theme name pathpin doesn't know falls back to `terminal`, a value
+that isn't a color is ignored, and pathpin says which line to fix when the menu closes.
 
 Coming from `fcd`? Your bookmarks are imported automatically the first time you run pathpin, and
 fcd's file is left in place.

@@ -136,3 +136,26 @@ func luminance(c lipgloss.Color) float64 {
 	}
 	return 0.2126*channel(16) + 0.7152*channel(8) + 0.0722*channel(0)
 }
+
+// A value that isn't a color is ignored, so the theme's color shows instead of
+// none (cmd prints the warning). Hex is #RGB or #RRGGBB; ANSI is 0-255.
+func TestInvalidColorsAreIgnored(t *testing.T) {
+	nord := colorsOf(NewStyles(config.Colors{Theme: "nord"}))
+	got := colorsOf(NewStyles(config.Colors{
+		Theme:        "nord",
+		Primary:      "monokai-pro-ristretto",
+		Secondary:    "#GGGGGG",
+		Tertiary:     "256",
+		SelectedText: "#12345",
+		Error:        "red",
+	}))
+	if got != nord {
+		t.Errorf("invalid colors should leave the theme's:\n got %+v\nwant %+v", got, nord)
+	}
+
+	for _, ok := range []string{"#56B6C2", "#56b6c2", "#abc", "0", "6", "255"} {
+		if got := colorsOf(NewStyles(config.Colors{Primary: ok})); got.accent != lipgloss.Color(ok) {
+			t.Errorf("%q is a color, got accent %v", ok, got.accent)
+		}
+	}
+}

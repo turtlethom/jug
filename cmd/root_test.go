@@ -441,3 +441,44 @@ func TestThemeWarningOnlyWhenNeeded(t *testing.T) {
 		t.Errorf("a known theme should not warn, got err %v, stderr %q", err, stderr)
 	}
 }
+
+// withColors writes a config with one bookmark (NOTES → ~/notes) and these
+// [colors] lines.
+func (e rootEnv) withColors(t *testing.T, lines string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(e.home, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, e.configPath, "[[bookmark]]\nlabel = \"NOTES\"\npath = \"~/notes\"\n\n[colors]\n"+lines)
+}
+
+// A [colors] value that isn't a color gets one warning line each when the
+// menu opens. A theme name in a color key suggests the theme key instead.
+func TestInvalidColorWarns(t *testing.T) {
+	e := newRootEnv(t)
+	e.withColors(t, "primary = \"monokai-pro-ristretto\"\ntertiary = \"grey\"\nsecondary = \"#56B6C2\"\n")
+	opened := false
+	_, stderr, err := e.run(t, func(*config.Config, string) (string, error) {
+		opened = true
+		return "", nil
+	})
+	if err != nil || !opened {
+		t.Fatalf("invalid colors should not stop the menu: err %v, opened %v", err, opened)
+	}
+	lines := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want one line per invalid color, got %q", stderr)
+	}
+	if !strings.Contains(lines[0], `primary = "monokai-pro-ristretto" is not a color`) ||
+		!strings.Contains(lines[0], `theme = "monokai-pro-ristretto"`) {
+		t.Errorf("want the bad primary and a theme suggestion, got %q", lines[0])
+	}
+	if !strings.Contains(lines[1], `tertiary = "grey" is not a color`) || !strings.Contains(lines[1], "#RRGGBB") {
+		t.Errorf("want the bad tertiary and the accepted formats, got %q", lines[1])
+	}
+
+	// Jumping doesn't use colors, so it doesn't warn.
+	if _, stderr, err := e.run(t, noMenu(t), "notes"); err != nil || stderr != "" {
+		t.Errorf("pathpin notes: want no warning, got err %v, stderr %q", err, stderr)
+	}
+}
