@@ -12,6 +12,7 @@ import (
 
 	"github.com/turtlethom/pathpin/internal/config"
 	"github.com/turtlethom/pathpin/internal/shell"
+	"github.com/turtlethom/pathpin/internal/ui"
 )
 
 // rootEnv points pathpin at a fresh $HOME and sets up a cd file the way the
@@ -386,5 +387,57 @@ func TestMessagesUseChosenName(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "pp [label]") || !strings.Contains(stdout, "pathpin init --help") {
 		t.Errorf("help should use pp, but setup instructions the binary name:\n%s", stdout)
+	}
+}
+
+// withTheme writes a config with one bookmark (NOTES → ~/notes) and this theme.
+func (e rootEnv) withTheme(t *testing.T, theme string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(e.home, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, e.configPath, fmt.Sprintf(
+		"[[bookmark]]\nlabel = \"NOTES\"\npath = \"~/notes\"\n\n[colors]\ntheme = %q\n", theme))
+}
+
+// A misspelled theme still opens the menu (in terminal colors) and says why
+// the colors look wrong, listing the themes there are.
+func TestUnknownThemeWarns(t *testing.T) {
+	e := newRootEnv(t)
+	e.withTheme(t, "nrod")
+	opened := false
+	_, stderr, err := e.run(t, func(*config.Config, string) (string, error) {
+		opened = true
+		return "", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opened {
+		t.Error("an unknown theme should not stop the menu")
+	}
+	if !strings.Contains(stderr, `unknown theme "nrod"`) || strings.Count(stderr, "\n") != 1 {
+		t.Errorf("want one line naming the theme, got %q", stderr)
+	}
+	for _, name := range ui.ThemeNames() {
+		if !strings.Contains(stderr, name) {
+			t.Errorf("the warning should list %s, got %q", name, stderr)
+		}
+	}
+}
+
+// Only the menu uses colors, so jumping doesn't warn, and a known theme
+// (in any case) never does.
+func TestThemeWarningOnlyWhenNeeded(t *testing.T) {
+	e := newRootEnv(t)
+	e.withTheme(t, "nrod")
+	if _, stderr, err := e.run(t, noMenu(t), "notes"); err != nil || stderr != "" {
+		t.Errorf("pathpin notes: want no warning, got err %v, stderr %q", err, stderr)
+	}
+
+	e.withTheme(t, "Nord")
+	_, stderr, err := e.run(t, func(*config.Config, string) (string, error) { return "", nil })
+	if err != nil || stderr != "" {
+		t.Errorf("a known theme should not warn, got err %v, stderr %q", err, stderr)
 	}
 }

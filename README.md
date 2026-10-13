@@ -70,13 +70,38 @@ label = "NVIM"
 path = "~/.config/nvim"
 
 [colors]
-primary = "#56B6C2"   # accent; secondary = text, tertiary = muted
+theme = "catppuccin-mocha"
 ```
 
 - Before every change, pathpin copies the previous file to `config.toml.bak`. It keeps **one**
   step back, so the next change replaces it.
 - pathpin rewrites the file when you add or remove from the menu, so **comments aren't kept**.
 - A file pathpin can't read is reported and left untouched, never reset.
+
+### Themes
+
+Pick a theme in `[colors]`:
+
+| Theme | |
+|---|---|
+| `terminal` (default) | your terminal's own colors, so it follows your terminal theme |
+| `catppuccin-latte` | light |
+| `catppuccin-mocha`, `gruvbox-dark`, `monokai-pro-ristretto`, `nord`, `one-dark`, `tokyo-night` | dark |
+
+Then change any single color on top of it. Each takes a hex color (`"#56B6C2"`) or an ANSI
+number (`"6"`):
+
+```toml
+[colors]
+theme = "nord"
+primary = "#56B6C2"        # accent: the selected row, title and filter
+secondary = "#ECEFF4"      # labels
+tertiary = "#7B88A1"       # paths and other muted text
+selected_text = "#2E3440"  # text on the accent
+error = "#BF616A"          # error messages
+```
+
+A theme name pathpin doesn't know is reported when the menu closes, and the menu uses `terminal`.
 
 Coming from `fcd`? Your bookmarks are imported automatically the first time you run pathpin, and
 fcd's file is left in place.

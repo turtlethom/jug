@@ -45,6 +45,12 @@ Set up your shell first: see 'pathpin init --help'.`, name),
 			if len(args) > 0 {
 				return jump(cmd, cfg, strings.Join(args, " "))
 			}
+			// Only the menu uses colors, so only warn when it opens. Like the
+			// migration line, this shows once the menu's screen closes.
+			if theme := cfg.Colors.Theme; !ui.KnownTheme(theme) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: unknown theme %q, using terminal. Themes: %s\n",
+					cmd.Root().Name(), theme, strings.Join(ui.ThemeNames(), ", "))
+			}
 			dir, err := menu(cfg, path)
 			if err != nil || dir == "" {
 				return err

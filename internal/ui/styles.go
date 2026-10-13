@@ -23,17 +23,24 @@ type Styles struct {
 	missing list.DefaultItemStyles // rows whose folder is gone
 }
 
-// NewStyles builds the menu's styles from the user's colors:
+// NewStyles builds the menu's styles from the user's theme (default:
+// terminal, which follows the terminal's own palette), then applies any colors
+// set in [colors] on top, one at a time:
 //
-//   - primary: accent (selected row's background, title, filter). Default: ANSI cyan.
-//   - secondary: normal text. Default: the terminal's own foreground.
-//   - tertiary: muted (descriptions, missing rows, status bar). Default: ANSI gray.
+//   - primary: accent (selected row's background, title, filter).
+//   - secondary: normal text.
+//   - tertiary: muted (descriptions, missing rows, status bar).
+//   - selected_text: text on the accent.
+//   - error: errors on the bottom line.
 //
-// The defaults are terminal palette colors, so they follow the terminal's theme.
+// An unknown theme gives terminal; cmd warns about it.
 func NewStyles(c config.Colors) Styles {
-	primary := pick(c.Primary, lipgloss.Color("6"))
-	text := pick(c.Secondary, lipgloss.NoColor{})
-	muted := pick(c.Tertiary, lipgloss.Color("8"))
+	theme, _ := lookupTheme(c.Theme)
+	primary := pick(c.Primary, theme.accent)
+	onPrimary := pick(c.SelectedText, theme.onAccent)
+	text := pick(c.Secondary, theme.text)
+	muted := pick(c.Tertiary, theme.muted)
+	errColor := pick(c.Error, theme.err)
 
 	bar := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, false, true).
@@ -41,15 +48,15 @@ func NewStyles(c config.Colors) Styles {
 		Padding(0, 0, 0, 1)
 	plain := lipgloss.NewStyle().Padding(0, 0, 0, 2)
 
-	// The selected label is a bright white block on the accent color (padding
-	// included, so one space shows on each side), and its path is underlined.
-	// The list cuts titles to fit NormalTitle's padding, so it gets the same
-	// right padding (invisible without a background) or the block would
-	// overflow the window by a column.
+	// The selected label is a block on the accent color (padding included, so
+	// one space shows on each side), and its path is underlined. The list cuts
+	// titles to fit NormalTitle's padding, so it gets the same right padding
+	// (invisible without a background) or the block would overflow the window
+	// by a column.
 	item := list.DefaultItemStyles{
 		NormalTitle:   plain.Foreground(text).PaddingRight(1),
 		NormalDesc:    plain.Foreground(muted),
-		SelectedTitle: bar.Foreground(lipgloss.Color("15")).Background(primary).Bold(true).PaddingRight(1),
+		SelectedTitle: bar.Foreground(onPrimary).Background(primary).Bold(true).PaddingRight(1),
 		SelectedDesc:  bar.Foreground(muted).Underline(true),
 		DimmedTitle:   plain.Foreground(muted),
 		DimmedDesc:    plain.Foreground(muted),
@@ -68,7 +75,7 @@ func NewStyles(c config.Colors) Styles {
 		filter:  lipgloss.NewStyle().Foreground(primary),
 		prompt:  lipgloss.NewStyle().Foreground(primary).Bold(true).Padding(0, 0, 0, 2),
 		note:    lipgloss.NewStyle().Foreground(text).Padding(0, 0, 0, 2),
-		errText: lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Padding(0, 0, 0, 2),
+		errText: lipgloss.NewStyle().Foreground(errColor).Padding(0, 0, 0, 2),
 		muted:   lipgloss.NewStyle().Foreground(muted),
 		item:    item,
 		missing: missing,

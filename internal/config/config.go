@@ -39,11 +39,16 @@ type Bookmark struct {
 	Group string `toml:"group,omitempty"`
 }
 
-// Colors are the user's theme colors. Empty means "use the default".
+// Colors pick the menu's theme and override its colors one at a time. Empty
+// means "use the theme's". Theme names are checked by the ui package, so an
+// unknown one loads fine and the menu warns about it.
 type Colors struct {
-	Primary   string `toml:"primary,omitempty"`
-	Secondary string `toml:"secondary,omitempty"`
-	Tertiary  string `toml:"tertiary,omitempty"`
+	Theme        string `toml:"theme,omitempty"`
+	Primary      string `toml:"primary,omitempty"`
+	Secondary    string `toml:"secondary,omitempty"`
+	Tertiary     string `toml:"tertiary,omitempty"`
+	SelectedText string `toml:"selected_text,omitempty"`
+	Error        string `toml:"error,omitempty"`
 }
 
 // Config is the whole configuration file.
