@@ -121,7 +121,17 @@ func handoff(cmd *cobra.Command, dir string) error {
 
 // completeLabels completes `pathpin <TAB>` with bookmark labels. It only reads the
 // config: migrating (and printing about it) mid-completion would be surprising.
+//
+// Labels complete in lowercase so they're easy to type, since `pathpin <label>`
+// matches any case. Shells drop candidates whose case doesn't match what was
+// typed, so after a capital (`pathpin NO<TAB>`) they complete in uppercase. A
+// label named like a subcommand always completes in uppercase, because
+// `pathpin ls` would run the command instead of jumping.
 func completeLabels(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	toCase := strings.ToLower
+	if toComplete != strings.ToLower(toComplete) {
+		toCase = strings.ToUpper
+	}
 	path, err := config.DefaultPath()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -132,7 +142,11 @@ func completeLabels(cmd *cobra.Command, args []string, toComplete string) ([]str
 	}
 	var labels []string
 	for _, b := range cfg.Bookmarks {
-		labels = append(labels, b.Label)
+		if _, ok := commandNamed(cmd.Root(), b.Label); ok {
+			labels = append(labels, strings.ToUpper(b.Label))
+			continue
+		}
+		labels = append(labels, toCase(b.Label))
 	}
 	return labels, cobra.ShellCompDirectiveNoFileComp
 }

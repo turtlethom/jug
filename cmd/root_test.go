@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/turtlethom/pathpin/internal/config"
 	"github.com/turtlethom/pathpin/internal/shell"
@@ -306,17 +309,65 @@ func TestLsTerminalFormat(t *testing.T) {
 	}
 }
 
+// Labels complete in lowercase, so `pathpin no<TAB>` gives `pathpin notes`.
+// Shells drop candidates whose case doesn't match what was typed, so once a
+// capital letter is typed (`pathpin NO<TAB>`), they complete in uppercase.
 func TestCompletesLabels(t *testing.T) {
 	e := newRootEnv(t)
-	e.withBookmarks(t, "NVIM", ".config/nvim", "NOTES", "notes")
+	e.withBookmarks(t, "NVIM", ".config/nvim", "Notes", "notes")
+	for _, c := range []struct {
+		typed     string
+		want, not []string
+	}{
+		{"", []string{"nvim", "notes"}, []string{"NVIM", "Notes"}},
+		{"n", []string{"nvim", "notes"}, []string{"NVIM", "Notes"}},
+		{"N", []string{"NVIM", "NOTES"}, []string{"nvim", "Notes"}},
+		{"nO", []string{"NVIM", "NOTES"}, []string{"nvim", "Notes"}},
+	} {
+		stdout, _, err := e.run(t, noMenu(t), "__complete", c.typed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, label := range c.want {
+			if !strings.Contains(stdout, label+"\n") {
+				t.Errorf("typed %q: completions should include %s, got %q", c.typed, label, stdout)
+			}
+		}
+		for _, label := range c.not {
+			if strings.Contains(stdout, label+"\n") {
+				t.Errorf("typed %q: completions should not include %s, got %q", c.typed, label, stdout)
+			}
+		}
+	}
+}
+
+// A label named like a subcommand completes in uppercase: `pathpin ls` would
+// run the ls command, while `pathpin LS` jumps.
+func TestCompletesCommandNamedLabelInUppercase(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "Ls", "listings", "NOTES", "notes")
 	stdout, _, err := e.run(t, noMenu(t), "__complete", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, label := range []string{"NVIM", "NOTES"} {
-		if !strings.Contains(stdout, label+"\n") {
-			t.Errorf("completions should include %s, got %q", label, stdout)
-		}
+	if !strings.Contains(stdout, "LS\n") || strings.Contains(stdout, "ls\n") {
+		t.Errorf("want LS, not ls, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "notes\n") {
+		t.Errorf("other labels should stay lowercase, got %q", stdout)
+	}
+}
+
+// `pathpin add <TAB>` is typing a new label, so it offers no file names.
+func TestAddCompletesNoFiles(t *testing.T) {
+	e := newRootEnv(t)
+	stdout, _, err := e.run(t, noMenu(t), "__complete", "add", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf(":%d\n", cobra.ShellCompDirectiveNoFileComp)
+	if !strings.HasSuffix(stdout, want) {
+		t.Errorf("want directive %q (no file completion), got %q", want, stdout)
 	}
 }
 

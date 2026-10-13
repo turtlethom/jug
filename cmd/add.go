@@ -16,7 +16,8 @@ func newAddCmd() *cobra.Command {
 		Short: "Bookmark the current directory",
 		Long: `Bookmark the current directory. Without a label, the folder's name is
 used in uppercase (~/.config/nvim becomes NVIM).`,
-		Args: cobra.ArbitraryArgs, // words of a label, joined with spaces
+		Args:              cobra.ArbitraryArgs,     // words of a label, joined with spaces
+		ValidArgsFunction: cobra.NoFileCompletions, // a new label: nothing to complete
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, path, err := loadConfig(cmd)
 			if err != nil {
