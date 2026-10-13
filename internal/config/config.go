@@ -51,10 +51,16 @@ type Colors struct {
 	Error        string `toml:"error,omitempty"`
 }
 
+// Menu holds the menu's display options. Each is off unless set.
+type Menu struct {
+	Icons bool `toml:"icons,omitempty"` // Nerd Font icons before labels
+}
+
 // Config is the whole configuration file.
 type Config struct {
 	Bookmarks []Bookmark `toml:"bookmark"`
 	Colors    Colors     `toml:"colors"`
+	Menu      Menu       `toml:"menu,omitempty"` // omitempty: no empty [menu] table on save
 }
 
 var (
@@ -193,7 +199,10 @@ func Save(path string, c *Config) error {
 		return err
 	}
 
-	out := Config{Colors: c.Colors}
+	// Copy every setting, then rebuild the bookmarks with ~ paths, so a new
+	// Config field is saved without a change here.
+	out := *c
+	out.Bookmarks = nil
 	for _, b := range c.Bookmarks {
 		b.Path = ContractHome(b.Path)
 		out.Bookmarks = append(out.Bookmarks, b)

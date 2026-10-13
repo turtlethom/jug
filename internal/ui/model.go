@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -77,6 +78,7 @@ func New(cfg *config.Config, configPath string) Model {
 	// One column less than the list's default, so the badge's block lines up
 	// with the selected row's.
 	l.Styles.TitleBar = l.Styles.TitleBar.PaddingLeft(1)
+	l.Filter = filterByRune
 	l.Styles.StatusBar = s.status
 	l.Styles.StatusEmpty = s.status
 	l.FilterInput.PromptStyle = s.filter
@@ -185,7 +187,7 @@ func (m Model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 // apply carries out a confirmed action: change a copy, save it, and only then
 // swap it in, so the screen always matches the file.
 func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
-	next := &config.Config{Colors: m.cfg.Colors, Bookmarks: slices.Clone(m.cfg.Bookmarks)}
+	next := m.edit()
 	switch p.action {
 	case confirmRemove:
 		if err := next.Remove(p.label); err != nil {
@@ -218,6 +220,14 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 			removed, config.ContractHome(m.configPath+".bak"))
 	}
 	return m, nil
+}
+
+// edit returns a copy of the config to change and save: every setting, and its
+// own bookmarks slice, so the menu's config stays as it is until the save works.
+func (m Model) edit() *config.Config {
+	next := *m.cfg
+	next.Bookmarks = slices.Clone(m.cfg.Bookmarks)
+	return &next
 }
 
 // startAdd opens the label field for the launch directory, unless that
@@ -276,7 +286,7 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 // add saves a bookmark for the launch directory. Errors keep the field open
 // so the label can be fixed.
 func (m Model) add(label string) (tea.Model, tea.Cmd) {
-	next := &config.Config{Colors: m.cfg.Colors, Bookmarks: slices.Clone(m.cfg.Bookmarks)}
+	next := m.edit()
 	if err := next.Add(label, m.cwd); err != nil {
 		m.inputErr = err.Error()
 		return m, nil
@@ -293,7 +303,7 @@ func (m Model) add(label string) (tea.Model, tea.Cmd) {
 	// Clear any filter so the new row is visible, then select it.
 	m.list.ResetFilter()
 	n := len(m.list.Items())
-	insertCmd := m.list.InsertItem(n, item{Bookmark: added})
+	insertCmd := m.list.InsertItem(n, item{Bookmark: added, icons: m.cfg.Menu.Icons})
 	m.list.Select(n)
 	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+displayLabel(added.Label)))
 }
@@ -347,7 +357,7 @@ func (m Model) bottomLine() string {
 func itemsFrom(cfg *config.Config) []list.Item {
 	items := make([]list.Item, len(cfg.Bookmarks))
 	for i, b := range cfg.Bookmarks {
-		items[i] = item{Bookmark: b, missing: !isDir(b.Path)}
+		items[i] = item{Bookmark: b, missing: !isDir(b.Path), icons: cfg.Menu.Icons}
 	}
 	return items
 }
@@ -356,22 +366,56 @@ func itemsFrom(cfg *config.Config) []list.Item {
 type item struct {
 	config.Bookmark
 	missing bool // folder didn't exist when last checked
+	icons   bool // [menu] icons: show an icon before the label
 }
 
 func (i item) Title() string {
+	t := i.icon() + displayLabel(i.Label)
 	if i.missing {
-		return displayLabel(i.Label) + " (missing)"
+		t += " (missing)"
 	}
-	return displayLabel(i.Label)
+	return t
 }
 func (i item) Description() string { return config.ContractHome(i.Path) }
 
-// FilterValue matches Title's case, so the filter underlines the right letters.
-func (i item) FilterValue() string { return displayLabel(i.Label) }
+// FilterValue starts the same way as Title (icon, then the label in
+// uppercase): the list underlines matches by position in Title, counting in
+// FilterValue.
+func (i item) FilterValue() string { return i.icon() + displayLabel(i.Label) }
+
+// icon is a Nerd Font icon and a space before the label, or "" with icons off.
+// A missing folder gets ✗, which most fonts have.
+func (i item) icon() string {
+	switch {
+	case !i.icons:
+		return ""
+	case i.missing:
+		return "✗ "
+	case config.ContractHome(i.Path) == "~":
+		return "\uf015 " // home
+	default:
+		return "\uf07b " // folder
+	}
+}
 
 // displayLabel is how the menu shows a label: in uppercase. The config keeps
 // labels as typed, so only use this for text on screen, never for lookups.
 func displayLabel(label string) string { return strings.ToUpper(label) }
+
+// filterByRune is list.DefaultFilter with match positions counted in
+// characters. The fuzzy matcher counts bytes, but the list underlines by
+// character, so anything non-ASCII before a match (an icon, or Ö in a label)
+// shifted the underline.
+func filterByRune(term string, targets []string) []list.Rank {
+	ranks := list.DefaultFilter(term, targets)
+	for _, r := range ranks {
+		target := targets[r.Index]
+		for j, b := range r.MatchedIndexes {
+			r.MatchedIndexes[j] = utf8.RuneCountInString(target[:b])
+		}
+	}
+	return ranks
+}
 
 // delegate draws each row as its label and path. The list draws the label
 // (selection, filter matches); renderPath draws the path. Missing rows use

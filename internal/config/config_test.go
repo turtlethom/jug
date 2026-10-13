@@ -205,6 +205,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 			{Label: "TMP", Path: outside},
 		},
 		Colors: Colors{Theme: "nord", Primary: "#56B6C2", SelectedText: "#2E3440", Error: "#BF616A"},
+		Menu:   Menu{Icons: true},
 	}
 	snapshot := *want
 	snapshot.Bookmarks = append([]Bookmark(nil), want.Bookmarks...)
@@ -223,7 +224,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if !strings.Contains(disk, outside) {
 		t.Errorf("paths outside $HOME should be written as-is; file:\n%s", disk)
 	}
-	for _, key := range []string{`theme = "nord"`, `selected_text = "#2E3440"`, `error = "#BF616A"`} {
+	for _, key := range []string{`theme = "nord"`, `selected_text = "#2E3440"`, `error = "#BF616A"`, "[menu]\nicons = true"} {
 		if !strings.Contains(disk, key) {
 			t.Errorf("want %s in [colors]; file:\n%s", key, disk)
 		}
@@ -235,6 +236,19 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round trip mismatch:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// A config that doesn't turn anything on in [menu] doesn't grow an empty
+// [menu] table when saved.
+func TestSaveOmitsEmptyMenu(t *testing.T) {
+	home := setupHome(t)
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
+	if err := Save(path, &Config{Bookmarks: []Bookmark{{Label: "TMP", Path: t.TempDir()}}}); err != nil {
+		t.Fatal(err)
+	}
+	if disk := readFile(t, path); strings.Contains(disk, "[menu]") {
+		t.Errorf("want no [menu] table; file:\n%s", disk)
 	}
 }
 

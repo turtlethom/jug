@@ -104,6 +104,16 @@ error = "#BF616A"          # error messages
 Mistakes don't break the menu. A theme name pathpin doesn't know falls back to `terminal`, a value
 that isn't a color is ignored, and pathpin says which line to fix when the menu closes.
 
+### Icons
+
+With a [Nerd Font](https://www.nerdfonts.com/) in your terminal, turn on icons before each label:
+a folder, a house for your home folder, and ✗ for a folder that no longer exists.
+
+```toml
+[menu]
+icons = true
+```
+
 Coming from `fcd`? Your bookmarks are imported automatically the first time you run pathpin, and
 fcd's file is left in place.
 
