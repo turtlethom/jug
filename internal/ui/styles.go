@@ -25,7 +25,7 @@ type Styles struct {
 
 // NewStyles builds the menu's styles from the user's colors:
 //
-//   - primary: accent (selected row, title, filter). Default: ANSI cyan.
+//   - primary: accent (selected row's background, title, filter). Default: ANSI cyan.
 //   - secondary: normal text. Default: the terminal's own foreground.
 //   - tertiary: muted (descriptions, missing rows, status bar). Default: ANSI gray.
 //
@@ -41,18 +41,24 @@ func NewStyles(c config.Colors) Styles {
 		Padding(0, 0, 0, 1)
 	plain := lipgloss.NewStyle().Padding(0, 0, 0, 2)
 
+	// The selected label is a bright white block on the accent color (padding
+	// included, so one space shows on each side), and its path is underlined.
+	// The list cuts titles to fit NormalTitle's padding, so it gets the same
+	// right padding (invisible without a background) or the block would
+	// overflow the window by a column.
 	item := list.DefaultItemStyles{
-		NormalTitle:   plain.Foreground(text),
+		NormalTitle:   plain.Foreground(text).PaddingRight(1),
 		NormalDesc:    plain.Foreground(muted),
-		SelectedTitle: bar.Foreground(primary).Bold(true),
-		SelectedDesc:  bar.Foreground(muted),
+		SelectedTitle: bar.Foreground(lipgloss.Color("15")).Background(primary).Bold(true).PaddingRight(1),
+		SelectedDesc:  bar.Foreground(muted).Underline(true),
 		DimmedTitle:   plain.Foreground(muted),
 		DimmedDesc:    plain.Foreground(muted),
 		FilterMatch:   lipgloss.NewStyle().Underline(true),
 	}
+	// The block means "enter goes here", so a missing row never gets it.
 	missing := item
 	missing.NormalTitle = item.NormalTitle.Foreground(muted)
-	missing.SelectedTitle = item.SelectedTitle.Foreground(muted)
+	missing.SelectedTitle = item.SelectedTitle.UnsetBackground().Foreground(muted)
 
 	return Styles{
 		app:     lipgloss.NewStyle().Padding(1, 1, 0, 1),

@@ -206,7 +206,7 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 		if n := len(m.list.VisibleItems()); n > 0 && m.list.Index() >= n {
 			m.list.Select(n - 1)
 		}
-		return m, m.list.NewStatusMessage("Removed " + p.label)
+		return m, m.list.NewStatusMessage("Removed " + displayLabel(p.label))
 	case confirmClear:
 		m.list.ResetFilter()
 		m.list.SetItems(nil)
@@ -228,7 +228,7 @@ func (m Model) startAdd() (tea.Model, tea.Cmd) {
 		if b.Path == filepath.Clean(m.cwd) {
 			m.list.ResetFilter()
 			m.list.Select(i)
-			m.message = "This folder is already saved as " + b.Label
+			m.message = "This folder is already saved as " + displayLabel(b.Label)
 			return m, nil
 		}
 	}
@@ -291,7 +291,7 @@ func (m Model) add(label string) (tea.Model, tea.Cmd) {
 	n := len(m.list.Items())
 	insertCmd := m.list.InsertItem(n, item{Bookmark: added})
 	m.list.Select(n)
-	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+added.Label))
+	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+displayLabel(added.Label)))
 }
 
 // choose cds to the highlighted bookmark, unless its folder is gone.
@@ -324,7 +324,7 @@ func (m Model) View() string {
 func (m Model) bottomLine() string {
 	switch {
 	case m.mode == modeConfirm && m.pending.action == confirmRemove:
-		return m.styles.prompt.Render(fmt.Sprintf("Remove %s? y/N", m.pending.label))
+		return m.styles.prompt.Render(fmt.Sprintf("Remove %s? y/N", displayLabel(m.pending.label)))
 	case m.mode == modeConfirm && m.pending.action == confirmClear:
 		return m.styles.prompt.Render(fmt.Sprintf("Delete all %d bookmarks? y/N", len(m.cfg.Bookmarks)))
 	case m.mode == modeInput:
@@ -356,12 +356,18 @@ type item struct {
 
 func (i item) Title() string {
 	if i.missing {
-		return i.Label + " (missing)"
+		return displayLabel(i.Label) + " (missing)"
 	}
-	return i.Label
+	return displayLabel(i.Label)
 }
 func (i item) Description() string { return config.ContractHome(i.Path) }
-func (i item) FilterValue() string { return i.Label }
+
+// FilterValue matches Title's case, so the filter underlines the right letters.
+func (i item) FilterValue() string { return displayLabel(i.Label) }
+
+// displayLabel is how the menu shows a label: in uppercase. The config keeps
+// labels as typed, so only use this for text on screen, never for lookups.
+func displayLabel(label string) string { return strings.ToUpper(label) }
 
 // delegate draws missing rows with muted styles and everything else normally.
 type delegate struct {

@@ -168,7 +168,7 @@ func TestEmptyState(t *testing.T) {
 
 func TestNewStyles(t *testing.T) {
 	def := NewStyles(config.Colors{})
-	if got := def.item.SelectedTitle.GetForeground(); got != lipgloss.Color("6") {
+	if got := def.item.SelectedTitle.GetBackground(); got != lipgloss.Color("6") {
 		t.Errorf("default primary: got %v, want ANSI 6", got)
 	}
 	if got := def.item.NormalDesc.GetForeground(); got != lipgloss.Color("8") {
@@ -176,11 +176,122 @@ func TestNewStyles(t *testing.T) {
 	}
 
 	set := NewStyles(config.Colors{Primary: "#56B6C2", Tertiary: "#777777"})
-	if got := set.item.SelectedTitle.GetForeground(); got != lipgloss.Color("#56B6C2") {
+	if got := set.item.SelectedTitle.GetBackground(); got != lipgloss.Color("#56B6C2") {
 		t.Errorf("configured primary: got %v", got)
 	}
 	if got := set.missing.NormalTitle.GetForeground(); got != lipgloss.Color("#777777") {
 		t.Errorf("missing rows should use tertiary: got %v", got)
+	}
+}
+
+// The selected row looks like fcd's: the label is a bold, bright white block on
+// the primary color, and the path below it is underlined in the tertiary
+// color. Unselected rows keep the plain look.
+func TestSelectedRowStyle(t *testing.T) {
+	s := NewStyles(config.Colors{Primary: "#56B6C2", Tertiary: "#777777"})
+
+	title := s.item.SelectedTitle
+	if title.GetBackground() != lipgloss.Color("#56B6C2") || title.GetForeground() != lipgloss.Color("15") || !title.GetBold() {
+		t.Errorf("selected label: want bold ANSI 15 on primary, got fg %v bg %v bold %v",
+			title.GetForeground(), title.GetBackground(), title.GetBold())
+	}
+	if !title.GetBorderLeft() {
+		t.Error("selected label should keep the left bar")
+	}
+	desc := s.item.SelectedDesc
+	if desc.GetForeground() != lipgloss.Color("#777777") || !desc.GetUnderline() {
+		t.Errorf("selected path: want underlined tertiary, got fg %v underline %v",
+			desc.GetForeground(), desc.GetUnderline())
+	}
+
+	if _, ok := s.item.NormalTitle.GetBackground().(lipgloss.NoColor); !ok {
+		t.Errorf("unselected labels should have no background, got %v", s.item.NormalTitle.GetBackground())
+	}
+	if s.item.NormalDesc.GetUnderline() {
+		t.Error("unselected paths should not be underlined")
+	}
+
+	// The block means "enter goes here", and enter on a missing row doesn't
+	// cd, so a selected missing row keeps the bar but stays dimmed.
+	gone := s.missing.SelectedTitle
+	if _, ok := gone.GetBackground().(lipgloss.NoColor); !ok {
+		t.Errorf("selected missing label should have no background, got %v", gone.GetBackground())
+	}
+	if gone.GetForeground() != lipgloss.Color("#777777") || !gone.GetBorderLeft() {
+		t.Errorf("selected missing label: want tertiary text and the bar, got fg %v bar %v",
+			gone.GetForeground(), gone.GetBorderLeft())
+	}
+}
+
+// A label too long for the window is cut off with an ellipsis, and the
+// selected row's padded block must still fit (e.g. in a narrow tmux split).
+func TestLongLabelFitsWidth(t *testing.T) {
+	m := newTestModel(t,
+		config.Bookmark{Label: strings.Repeat("LONG", 20), Path: "a"},
+		config.Bookmark{Label: strings.Repeat("GONE", 20), Path: "!b"},
+	)
+	const width = 30
+	next, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+	m = next.(Model)
+	// Only the rows are under test. The help line isn't cut to the window
+	// either, but Bubble Tea's renderer clips it, so it's harmless on screen.
+	m.list.SetShowHelp(false)
+	for _, down := range []bool{false, true} { // first row selected, then the missing one
+		if down {
+			m, _ = press(m, tea.KeyMsg{Type: tea.KeyDown})
+		}
+		// lipgloss pads every line to the widest, so one check covers them all.
+		if w := lipgloss.Width(m.View()); w > width {
+			t.Errorf("selected row %d: view is %d wide, window is %d:\n%s", m.list.Index(), w, width, m.View())
+		}
+	}
+}
+
+// The menu shows every label in uppercase, but the config keeps labels as
+// typed. Labels are unique ignoring case, so two rows can't look the same.
+func TestLabelsShowUppercase(t *testing.T) {
+	m := newTestModel(t,
+		config.Bookmark{Label: "dotfiles", Path: "cfg/home"},
+		config.Bookmark{Label: "Day Job", Path: "work"},
+		config.Bookmark{Label: "gone", Path: "!old/project"},
+	)
+	view := m.View()
+	for _, want := range []string{"DOTFILES", "DAY JOB", "GONE (missing)"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("want %q in the view:\n%s", want, view)
+		}
+	}
+	for _, typed := range []string{"dotfiles", "Day Job", "gone"} {
+		if strings.Contains(view, typed) {
+			t.Errorf("the view should not show %q as typed:\n%s", typed, view)
+		}
+	}
+
+	// The filter matches the uppercase labels whatever case you type.
+	for _, f := range []string{"dot", "DOT", "Dot"} {
+		m.list.SetFilterText(f)
+		if got := m.list.VisibleItems(); len(got) != 1 || got[0].(item).Path != m.cfg.Bookmarks[0].Path {
+			t.Errorf("filter %q: want only DOTFILES, got %d rows", f, len(got))
+		}
+	}
+	m.list.ResetFilter()
+
+	// Prompts show the label the way the row does.
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyDown}) // Day Job
+	m, _ = press(m, runes("r"))
+	if !strings.Contains(m.View(), "Remove DAY JOB? y/N") {
+		t.Fatalf("want the prompt in uppercase:\n%s", m.View())
+	}
+	m, _ = press(m, runes("y"))
+	got := onDisk(t, m)
+	if len(got) != 2 || got[0].Label != "dotfiles" || got[1].Label != "gone" {
+		t.Errorf("the file should keep the other labels as typed, got %+v", got)
+	}
+
+	m.cwd = m.cfg.Bookmarks[0].Path // dotfiles
+	m, _ = press(m, runes("a"))
+	if !strings.Contains(m.View(), "This folder is already saved as DOTFILES") {
+		t.Errorf("want the already-saved message in uppercase:\n%s", m.View())
 	}
 }
 
@@ -360,6 +471,9 @@ func TestAddTypedLabelIsKeptAsTyped(t *testing.T) {
 	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEnter})
 	if got := onDisk(t, m); len(got) != 3 || got[2].Label != "Day Job" {
 		t.Errorf("want the typed label as-is, got %+v", got)
+	}
+	if !strings.Contains(m.View(), "Added DAY JOB") {
+		t.Errorf("the status should show the label the way the row does:\n%s", m.View())
 	}
 }
 
