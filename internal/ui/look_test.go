@@ -144,15 +144,20 @@ const (
 	nordMuted    = "#616e88"
 )
 
-// The title is a badge: the accent block with the theme's text on it, like
-// the selected row. The empty menu draws the same badge.
+// The title is a badge, PATHPIN in uppercase like the labels: the accent block
+// with the theme's text on it, like the selected row. The empty menu draws the
+// same badge.
 func TestTitleBadge(t *testing.T) {
 	withColor(t)
 	for name, m := range map[string]Model{
 		"bookmarks": nordModel(t, config.Bookmark{Label: "NOTES", Path: "notes"}),
 		"empty":     nordModel(t),
 	} {
-		before, word, after := find(t, cells(rawLine(t, m.View(), "pathpin")), "pathpin")
+		line := rawLine(t, m.View(), "PATHPIN")
+		if strings.Contains(plain(line), "pathpin") {
+			t.Errorf("%s: the title should be uppercase, got %q", name, plain(line))
+		}
+		before, word, after := find(t, cells(line), "PATHPIN")
 		for _, c := range word {
 			if c.bg != bg(nordAccent) || c.fg != fg(nordOnAccent) {
 				t.Fatalf("%s: want the title in %s on the accent (%s), got fg %q bg %q", name, nordOnAccent, nordAccent, c.fg, c.bg)

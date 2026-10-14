@@ -46,6 +46,10 @@ type pending struct {
 
 const emptyMessage = "No bookmarks yet — press a to add this directory"
 
+// menuTitle is the badge at the top, in uppercase like the labels. It's the
+// tool's name, never the --cmd name.
+const menuTitle = "PATHPIN"
+
 // Model is the pathpin menu.
 type Model struct {
 	mode       mode
@@ -84,7 +88,7 @@ func New(cfg *config.Config, configPath string) Model {
 	d.Styles = s.item
 
 	l := list.New(itemsFrom(cfg, config.TabAll), d, 0, 0)
-	l.Title = "pathpin"
+	l.Title = menuTitle
 	l.Styles.Title = s.title
 	// One column less than the list's default, so the badge's block lines up
 	// with the selected row's.
@@ -531,7 +535,7 @@ func (m Model) View() string {
 	}
 	if len(m.list.Items()) == 0 {
 		// Same title bar as the list draws, so the title doesn't jump when it empties.
-		body = m.list.Styles.TitleBar.Render(m.styles.title.Render("pathpin")) + "\n" + m.styles.empty.Render(emptyMessage) + "\n"
+		body = m.list.Styles.TitleBar.Render(m.styles.title.Render(menuTitle)) + "\n" + m.styles.empty.Render(emptyMessage) + "\n"
 	}
 	return m.styles.app.Render(body + "\n" + m.bottomLine())
 }

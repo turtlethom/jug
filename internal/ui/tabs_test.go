@@ -53,10 +53,10 @@ func shown(m Model) []string {
 func tabBar(t *testing.T, m Model) []string {
 	t.Helper()
 	lines := strings.Split(plain(m.View()), "\n")
-	title := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "pathpin") })
+	title := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "PATHPIN") })
 	status := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "bookmark") })
-	if title < 0 || status < 0 {
-		t.Fatalf("no title or status line:\n%s", plain(m.View()))
+	if title < 0 || status < 0 || title > status {
+		t.Fatalf("want the title line above the status line:\n%s", plain(m.View()))
 	}
 	for _, l := range lines[title+1 : status] {
 		if f := strings.Fields(l); len(f) > 0 && f[0] == config.TabAll {
