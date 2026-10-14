@@ -30,6 +30,8 @@ const (
 	modeGroup                 // typing a group for the highlighted bookmark (m)
 	modeRename                // typing a new label for the highlighted bookmark (n)
 	modeGroupName             // typing a new name for the open group's tab (N)
+	modeTheme                 // the theme picker (t) is open
+	modeHex                   // typing a color for the picker's highlighted row (#)
 )
 
 // confirmAction is what a y/N prompt will do if confirmed.
@@ -69,6 +71,7 @@ type Model struct {
 	inputErr string // shown beside the label or group field until the next key
 
 	group   textinput.Model // m's field; suggests existing group names
+	hex     textinput.Model // the theme picker's field for any color (#)
 	editing string          // the bookmark (label) or group the open field is for
 
 	// message is shown on the bottom line until the next key.
@@ -78,6 +81,11 @@ type Model struct {
 	// tab is the open tab by name: config.TabAll, a group, or config.TabOther.
 	// A name, not a position, because tabs shift when a group empties.
 	tab string
+	// themeRow is the theme picker's highlighted row, and draft the colors it
+	// shows; m.cfg.Colors stays as saved until enter there.
+	themeRow int
+	draft    config.Colors
+
 	// width and height are the last window size, to resize the list when the
 	// tab bar comes or goes.
 	width, height int
@@ -86,45 +94,60 @@ type Model struct {
 // New builds the menu for cfg. It checks once whether each bookmark's folder
 // still exists.
 func New(cfg *config.Config, configPath string) Model {
-	s := NewStyles(cfg.Colors)
-
-	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd}
-	d.Styles = s.item
-
-	l := list.New(itemsFrom(cfg, config.TabAll), d, 0, 0)
+	l := list.New(itemsFrom(cfg, config.TabAll), delegate{}, 0, 0) // restyle sets the real delegate
 	l.Title = menuTitle
-	l.Styles.Title = s.title
 	// One column less than the list's default, so the badge's block lines up
 	// with the selected row's.
 	l.Styles.TitleBar = l.Styles.TitleBar.PaddingLeft(1)
 	l.Filter = filterByRune
-	l.Styles.StatusBar = s.status
-	l.Styles.StatusEmpty = s.status
-	l.FilterInput.PromptStyle = s.filter
-	l.FilterInput.Cursor.Style = s.filter
 	l.SetStatusBarItemName("bookmark", "bookmarks")
 	l.StatusMessageLifetime = 3 * time.Second
 	setHelpKeys(&l, tabs(cfg) != nil)
 
-	group := newField(s, "Group: ")
+	group := newField("Group: ")
 	group.ShowSuggestions = true // tab completes an existing group's name
 
 	cwd, _ := os.Getwd() // "" if it fails; a then reports the folder is gone
-	return Model{
-		mode: modeBrowse, list: l, styles: s, cfg: cfg, configPath: configPath, cwd: cwd,
-		input: newField(s, "Label: "), group: group, tab: config.TabAll,
+	m := Model{
+		mode: modeBrowse, list: l, cfg: cfg, configPath: configPath, cwd: cwd,
+		input: newField("Label: "), group: group, hex: newField(""), tab: config.TabAll,
+	}
+	m.restyle(cfg.Colors)
+	return m
+}
+
+// restyle draws the menu in these colors. New calls it with the saved colors,
+// and the theme picker with its draft on every change.
+//
+// The styles live in several places, not just m.styles: the list keeps its own
+// copies (title, status bar, filter), the delegate draws the rows, and each
+// text field styles its prompt. So all of them are set here, in one place.
+func (m *Model) restyle(c config.Colors) {
+	s := NewStyles(c)
+	m.styles = s
+
+	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd}
+	d.Styles = s.item
+	m.list.SetDelegate(d)
+	m.list.Styles.Title = s.title
+	m.list.Styles.StatusBar = s.status
+	m.list.Styles.StatusEmpty = s.status
+	m.list.FilterInput.PromptStyle = s.filter
+	m.list.FilterInput.Cursor.Style = s.filter
+
+	for _, f := range []*textinput.Model{&m.input, &m.group, &m.hex} {
+		f.PromptStyle = s.filter
+		f.Cursor.Style = s.filter
+		f.PlaceholderStyle = s.muted
+		f.CompletionStyle = s.muted
 	}
 }
 
-// newField makes a text field for the bottom line.
-func newField(s Styles, prompt string) textinput.Model {
+// newField makes a text field for the bottom line. restyle colors it.
+func newField(prompt string) textinput.Model {
 	in := textinput.New()
 	in.Prompt = prompt
 	in.CharLimit = 40
-	in.PromptStyle = s.filter
-	in.Cursor.Style = s.filter
-	in.PlaceholderStyle = s.muted
-	in.CompletionStyle = s.muted
 	return in
 }
 
@@ -145,7 +168,7 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 	}
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		k := []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename"),
-			key.NewBinding(key.WithKeys("J", "K", "shift+down", "shift+up"), key.WithHelp("J/K", "reorder"))}
+			key.NewBinding(key.WithKeys("J", "K", "shift+down", "shift+up"), key.WithHelp("J/K", "reorder")), bind("t", "theme")}
 		if withTabs {
 			k = append(k, bind("N", "rename group"), tab)
 		}
@@ -182,6 +205,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateField(msg, labelField, Model.rename)
 	case modeGroupName:
 		return m.updateField(msg, groupField, Model.renameGroup)
+	case modeTheme:
+		return m.updateTheme(msg)
+	case modeHex:
+		return m.updateField(msg, hexField, Model.setHex)
 	}
 	return m, nil
 }
@@ -218,6 +245,8 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.startRename()
 		case "N":
 			return m.startRenameGroup()
+		case "t":
+			return m.startTheme()
 		case "J", "K", "shift+down", "shift+up":
 			return m.reorder(key.String() == "J" || key.String() == "shift+down")
 		case "tab", "shift+tab":
@@ -238,8 +267,8 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// resize fits the list to the window, leaving room for the bottom line and,
-// while there are groups, the tab bar.
+// resize fits the list to the window, leaving room for the bottom line,
+// the tab bar while there are groups, and the theme picker while it's open.
 //
 // It has a pointer receiver so it can change the Model it's called on. Update
 // has a value receiver, so the m it holds is its own copy and calling
@@ -252,6 +281,9 @@ func (m *Model) resize() {
 	reserved := 1 // the bottom line
 	if tabs(m.cfg) != nil {
 		reserved++
+	}
+	if m.picking() {
+		reserved += 1 + len(colorRows()) // a blank line, then the rows
 	}
 	m.list.SetSize(m.width-h, m.height-v-reserved)
 }
@@ -393,7 +425,11 @@ func (m Model) updateField(msg tea.Msg, field func(*Model) *textinput.Model, sav
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
 		case "esc":
-			m.mode = modeBrowse
+			if m.mode == modeHex {
+				m.mode = modeTheme // the hex field belongs to the picker
+			} else {
+				m.mode = modeBrowse
+			}
 			f.Blur()
 			return m, nil
 		case "enter":
@@ -412,6 +448,7 @@ func (m Model) updateField(msg tea.Msg, field func(*Model) *textinput.Model, sav
 
 func labelField(m *Model) *textinput.Model { return &m.input }
 func groupField(m *Model) *textinput.Model { return &m.group }
+func hexField(m *Model) *textinput.Model   { return &m.hex }
 
 // addFromField adds the launch directory with the label field's value, or
 // its suggestion (the placeholder) if the field is empty.
@@ -721,6 +758,11 @@ func (m Model) View() string {
 		// Same title bar as the list draws, so the title doesn't jump when it empties.
 		body = m.list.Styles.TitleBar.Render(m.styles.title.Render(menuTitle)) + "\n" + m.styles.empty.Render(emptyMessage) + "\n"
 	}
+	if m.picking() {
+		// The empty menu's body already ends its last line; the picker's
+		// margin is the one blank line either way.
+		body = strings.TrimSuffix(body, "\n") + "\n" + m.pickerView()
+	}
 	return m.styles.app.Render(body + "\n" + m.bottomLine())
 }
 
@@ -751,9 +793,13 @@ func (m Model) bottomLine() string {
 		return m.styles.prompt.Render(fmt.Sprintf("Delete all %d bookmarks? y/N", len(m.cfg.Bookmarks)))
 	case m.mode == modeConfirm && m.pending.action == confirmMerge:
 		return m.styles.prompt.Render(fmt.Sprintf("Merge %s into %s? y/N", m.pending.from, m.pending.into))
-	case m.mode == modeInput || m.mode == modeGroup || m.mode == modeRename || m.mode == modeGroupName:
+	case m.mode == modeTheme && !m.messageErr:
+		return m.styles.note.Render(m.styles.muted.Render(pickerKeys))
+	case m.mode == modeInput || m.mode == modeGroup || m.mode == modeRename || m.mode == modeGroupName || m.mode == modeHex:
 		field, hint := m.input, m.styles.muted.Render("enter save · esc cancel")
 		switch m.mode {
+		case modeHex:
+			field, hint = m.hex, m.styles.muted.Render("enter set · esc back")
 		case modeGroup:
 			field, hint = m.group, m.styles.muted.Render("tab complete · empty = no group")
 		case modeGroupName:

@@ -25,6 +25,8 @@ type Styles struct {
 	tabBar  lipgloss.Style         // the line of group tabs
 	tab     lipgloss.Style         // a tab
 	tabOpen lipgloss.Style         // the open tab
+	picker  lipgloss.Style         // the theme picker's panel
+	picked  lipgloss.Style         // the picker's highlighted row
 }
 
 // NewStyles builds the menu's styles from the user's theme (default:
@@ -88,6 +90,8 @@ func NewStyles(c config.Colors) Styles {
 		tabBar:  lipgloss.NewStyle().Padding(0, 0, 0, 2), // lines up with the title's text
 		tab:     lipgloss.NewStyle().Foreground(muted),
 		tabOpen: lipgloss.NewStyle().Foreground(primary).Bold(true),
+		picker:  lipgloss.NewStyle().MarginTop(1), // its › sits where the selected row's bar is
+		picked:  lipgloss.NewStyle().Foreground(primary).Bold(true),
 	}
 }
 

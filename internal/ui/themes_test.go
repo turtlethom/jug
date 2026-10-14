@@ -158,4 +158,10 @@ func TestInvalidColorsAreIgnored(t *testing.T) {
 			t.Errorf("%q is a color, got accent %v", ok, got.accent)
 		}
 	}
+	// ANSI numbers are digits only: strconv.Atoi alone would take a sign.
+	for _, bad := range []string{"+5", "-0", " 5", "5 ", "#+bc"} {
+		if validColor(bad) {
+			t.Errorf("%q shouldn't be a color", bad)
+		}
+	}
 }

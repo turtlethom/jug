@@ -61,6 +61,7 @@ In the menu:
 | `N` | rename the open group (renaming it to another group's name merges them, after asking) |
 | `J` / `K` (or `shift+↓` / `shift+↑`) | move the highlighted bookmark down / up |
 | `tab` / `shift+tab` | next / previous group (when you have groups) |
+| `t` | pick a theme and colors, previewed live (see [Themes](#themes)) |
 | `q` / `esc` | quit without changing directory |
 | `?` | help |
 
@@ -109,7 +110,12 @@ path.
 
 ### Themes
 
-Pick a theme in `[colors]`:
+The easiest way is `t` in the menu. Pick a row with `↑`/`↓` (the theme, or one of the colors
+below) and change it with `←`/`→`, and the menu redraws as you go. Colors cycle through your
+terminal's 16 colors and a set of named ones. `#` types any color, `d` puts a row back to the
+theme's, `enter` saves and `esc` leaves everything as it was.
+
+Or pick a theme in `[colors]`:
 
 | Theme | |
 |---|---|

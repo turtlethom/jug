@@ -100,8 +100,12 @@ func validColor(s string) bool {
 		_, err := strconv.ParseUint(h, 16, 32)
 		return err == nil
 	}
+	// Digits only: Atoi alone would also take a sign, like "+5".
+	if s == "" || strings.Trim(s, "0123456789") != "" {
+		return false
+	}
 	n, err := strconv.Atoi(s)
-	return err == nil && n >= 0 && n <= 255
+	return err == nil && n <= 255
 }
 
 // BadColor is a [colors] value that isn't a color, which the menu ignores.
@@ -125,4 +129,32 @@ func InvalidColors(c config.Colors) []BadColor {
 		}
 	}
 	return bad
+}
+
+// namedColor is a color the theme picker offers for a [colors] slot.
+type namedColor struct {
+	name  string
+	value string // as saved in config.toml: an ANSI number or "#RRGGBB"
+}
+
+// colorChoices lists the picker's colors: the terminal's 16 ANSI colors
+// first, which follow the terminal's own palette, then fcd's named colors.
+// The names overlap (both have a red), so the picker shows name and value.
+func colorChoices() []namedColor {
+	ansi := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}
+	var choices []namedColor
+	for i := range 16 {
+		name := ansi[i%8]
+		if i >= 8 {
+			name = "bright-" + name
+		}
+		choices = append(choices, namedColor{name, strconv.Itoa(i)})
+	}
+	return append(choices, []namedColor{
+		{"crimson", "#DC143C"}, {"coral", "#F08080"}, {"pink", "#FF007F"}, {"red", "#E06C75"},
+		{"orange", "#D19A66"}, {"tangerine", "#FF9500"}, {"amber", "#FFBF00"}, {"gold", "#DAA520"},
+		{"yellow", "#E5C078"}, {"green", "#98C379"}, {"emerald", "#50C878"}, {"aqua", "#56B6C2"},
+		{"navy", "#000080"}, {"amethyst", "#9966CC"}, {"indigo", "#4B0082"}, {"violet", "#C678DD"},
+		{"gray", "#5C6370"}, {"white", "#FFFFFF"}, {"black", "#000000"}, {"brown", "#A0522D"},
+	}...)
 }
