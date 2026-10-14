@@ -23,7 +23,7 @@ func iconModel(t *testing.T, bookmarks ...config.Bookmark) Model {
 	t.Helper()
 	m := newTestModel(t, bookmarks...) // creates the folders and the config file
 	cfg := &config.Config{Menu: config.Menu{Icons: true}, Bookmarks: m.cfg.Bookmarks}
-	return New(cfg, m.configPath).sized(80, 24)
+	return started(New(cfg, m.configPath)).sized(80, 24)
 }
 
 // Icons are off unless turned on, since they need a Nerd Font.

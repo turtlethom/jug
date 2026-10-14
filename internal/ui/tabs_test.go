@@ -38,7 +38,7 @@ func groupModelOf(t *testing.T, bookmarks ...config.Bookmark) Model {
 	t.Helper()
 	m := newTestModel(t, bookmarks...) // creates the folders and the config file
 	cfg := &config.Config{Colors: config.Colors{Theme: "nord"}, Bookmarks: m.cfg.Bookmarks}
-	return New(cfg, m.configPath).sized(80, 40)
+	return started(New(cfg, m.configPath)).sized(80, 40)
 }
 
 // shown lists the labels of the rows the menu shows now.

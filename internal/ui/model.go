@@ -86,15 +86,21 @@ type Model struct {
 	themeRow int
 	draft    config.Colors
 
+	// gone holds the folders found missing, by path: by the checks Init starts
+	// (see checkFolder), or by enter. Rows read it instead of the disk. A path
+	// is never removed: a folder that comes back is found by enter, which cds.
+	gone map[string]bool
+
 	// width and height are the last window size, to resize the list when the
 	// tab bar comes or goes.
 	width, height int
 }
 
-// New builds the menu for cfg. It checks once whether each bookmark's folder
-// still exists.
+// New builds the menu for cfg. It doesn't touch the disk: Init checks the
+// folders in the background, and rows show as present until then.
 func New(cfg *config.Config, configPath string) Model {
-	l := list.New(itemsFrom(cfg, config.TabAll), delegate{}, 0, 0) // restyle sets the real delegate
+	gone := map[string]bool{}
+	l := list.New(itemsFrom(cfg, config.TabAll, gone), delegate{}, 0, 0) // restyle sets the real delegate
 	l.Title = menuTitle
 	// One column less than the list's default, so the badge's block lines up
 	// with the selected row's.
@@ -110,7 +116,7 @@ func New(cfg *config.Config, configPath string) Model {
 	cwd, _ := os.Getwd() // "" if it fails; a then reports the folder is gone
 	m := Model{
 		mode: modeBrowse, list: l, cfg: cfg, configPath: configPath, cwd: cwd,
-		input: newField("Label: "), group: group, hex: newField(""), tab: config.TabAll,
+		input: newField("Label: "), group: group, hex: newField(""), tab: config.TabAll, gone: gone,
 	}
 	m.restyle(cfg.Colors)
 	return m
@@ -176,7 +182,65 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 	}
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+// Init checks every bookmark's folder in the background, one command each,
+// so opening the menu never waits on the disk, and a folder on a hung mount
+// never gets its result while the rest do. Bubble Tea runs the commands in
+// their own goroutines and sends each result to Update. (enter still checks
+// its folder synchronously, so enter on a hung mount does wait.)
+func (m Model) Init() tea.Cmd {
+	var checks []tea.Cmd
+	for _, b := range m.cfg.Bookmarks {
+		checks = append(checks, checkFolder(b.Path))
+	}
+	return tea.Batch(checks...)
+}
+
+// folderGoneMsg says a bookmark's folder doesn't exist.
+type folderGoneMsg struct{ path string }
+
+// checkFolder looks at one folder off the UI and reports it only if it's gone.
+// Rows start as present, so there's nothing to say otherwise, and a late
+// "present" can't undo what enter found since. Bubble Tea skips a nil message.
+//
+// A command only computes and reports; it never touches the model, which only
+// Update changes, one message at a time.
+func checkFolder(path string) tea.Cmd {
+	return func() tea.Msg {
+		if isDir(path) {
+			return nil
+		}
+		return folderGoneMsg{path: path}
+	}
+}
+
+// markGone records a folder as missing and dims its row, if it's on the open
+// tab. Don't call it while a filter is being typed (see Update).
+func (m *Model) markGone(path string) {
+	// m.gone is shared by every copy of the Model, as the list's rows are: a
+	// map or slice is a reference to the same storage, so an older copy
+	// doesn't stay as it was. That's fine because Bubble Tea keeps only the
+	// newest model.
+	m.gone[path] = true
+
+	i := slices.IndexFunc(m.list.Items(), func(li list.Item) bool { return li.(item).Path == path })
+	if i < 0 {
+		return // on another tab, or removed meanwhile
+	}
+	it := m.list.Items()[i].(item)
+	if it.missing {
+		return
+	}
+	it.missing = true
+	at := m.list.Index()
+	// With a filter applied, SetItem returns bubbles' re-filter, which would run
+	// in the background reading the rows while later keys (r, y) change them.
+	// Drop it and re-filter here instead, keeping the cursor.
+	m.list.SetItem(i, it)
+	if m.list.FilterState() == list.FilterApplied {
+		m.list.SetFilterText(m.list.FilterValue())
+		m.list.Select(at)
+	}
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Messages every mode handles the same way.
@@ -184,6 +248,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
+		return m, nil
+	case folderGoneMsg:
+		if m.list.FilterState() == list.Filtering {
+			// The list re-filters in the background on every key while a
+			// filter is typed, reading the rows, so changing one now would
+			// race with it. Deliver the message again shortly instead.
+			return m, tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return msg })
+		}
+		m.markGone(msg.path)
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -292,7 +365,7 @@ func (m *Model) resize() {
 func (m *Model) showTab(name string) tea.Cmd {
 	m.tab = name
 	m.list.ResetFilter()
-	cmd := m.list.SetItems(itemsFrom(m.cfg, name))
+	cmd := m.list.SetItems(itemsFrom(m.cfg, name, m.gone))
 	m.list.Select(0)
 	return cmd
 }
@@ -560,7 +633,7 @@ func (m Model) move(group string) (tea.Model, tea.Cmd) {
 func (m *Model) reloadRows(path string) tea.Cmd {
 	at := m.list.Index()
 	m.list.ResetFilter()
-	cmd := m.list.SetItems(itemsFrom(m.cfg, m.tab))
+	cmd := m.list.SetItems(itemsFrom(m.cfg, m.tab, m.gone))
 	if i := slices.IndexFunc(m.list.Items(), func(li list.Item) bool { return li.(item).Path == path }); i >= 0 {
 		at = i
 	}
@@ -735,10 +808,9 @@ func (m Model) choose() (tea.Model, tea.Cmd) {
 	}
 	// Check again: the folder may have come back (or vanished) since the menu opened.
 	if !isDir(it.Path) {
-		it.missing = true
-		// GlobalIndex, not Index: with a filter applied they differ.
-		m.list.SetItem(m.list.GlobalIndex(), it)
-		return m, m.list.NewStatusMessage(config.ContractHome(it.Path) + " no longer exists")
+		m.markGone(it.Path)
+		cmd := m.list.NewStatusMessage(config.ContractHome(it.Path) + " no longer exists")
+		return m, cmd
 	}
 	m.chosen = it.Path
 	return m, tea.Quit
@@ -815,15 +887,15 @@ func (m Model) bottomLine() string {
 	return m.styles.note.Render(m.message)
 }
 
-// itemsFrom makes list rows for the bookmarks on a tab, in config order,
-// checking whether each folder exists.
-func itemsFrom(cfg *config.Config, tab string) []list.Item {
+// itemsFrom makes list rows for the bookmarks on a tab, in config order, with
+// the folders in gone marked missing.
+func itemsFrom(cfg *config.Config, tab string, gone map[string]bool) []list.Item {
 	var items []list.Item
 	for _, b := range cfg.Bookmarks {
 		if inTab(b, tab) {
 			items = append(items, item{
 				Bookmark:   b,
-				missing:    !isDir(b.Path),
+				missing:    gone[b.Path],
 				icons:      cfg.Menu.Icons,
 				matchGroup: tab == config.TabAll, // on a group's tab, every row shares the group
 			})

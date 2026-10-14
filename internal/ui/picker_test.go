@@ -26,7 +26,7 @@ func colorsModel(t *testing.T, c config.Colors) Model {
 		t.Fatal(err)
 	}
 	os.Remove(m.configPath + ".bak") // so tests can tell whether the picker saved
-	return New(cfg, m.configPath).sized(80, 24)
+	return started(New(cfg, m.configPath)).sized(80, 24)
 }
 
 func openPicker(t *testing.T, m Model) Model {

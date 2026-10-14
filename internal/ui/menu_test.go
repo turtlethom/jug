@@ -36,7 +36,7 @@ func newTestModel(t *testing.T, bookmarks ...config.Bookmark) Model {
 	if err := config.Save(configPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	m := New(cfg, configPath)
+	m := started(New(cfg, configPath)) // checks the folders, as the program does at start
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	return next.(Model)
 }

@@ -29,7 +29,7 @@ func nordModel(t *testing.T, bookmarks ...config.Bookmark) Model {
 	t.Helper()
 	m := newTestModel(t, bookmarks...) // creates the folders and the config file
 	cfg := &config.Config{Colors: config.Colors{Theme: "nord"}, Bookmarks: m.cfg.Bookmarks}
-	return New(cfg, m.configPath).sized(80, 24)
+	return started(New(cfg, m.configPath)).sized(80, 24)
 }
 
 // sized sends a window size, as Bubble Tea does when the program starts.
