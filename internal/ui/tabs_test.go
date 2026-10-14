@@ -174,17 +174,19 @@ func headLines(t *testing.T, m Model) []string {
 	return head
 }
 
-// A blank line separates the title from the tab bar, and the tab bar from the
-// status line. While typing a filter, the filter field takes the title's place
-// and the spacing stays. Without groups, the head is as it was.
+// A blank line separates the title from the tab bar; a rule under the tab bar
+// and a blank line separate it from the status line. While typing a filter,
+// the filter field takes the title's place and the spacing stays. Without
+// groups, the head is as it was.
 func TestTabBarSpacing(t *testing.T) {
 	m := groupModel(t)
 	filtering, _ := press(m, runes("/"))
 	filtering, _ = press(filtering, runes("b"))
 	for name, m := range map[string]Model{"browsing": m, "filtering": filtering} {
 		got := headLines(t, m)
-		if len(got) != 5 || got[1] != "" || !strings.HasPrefix(got[2], config.TabAll+" ") || got[3] != "" {
-			t.Errorf("%s: want title, blank, tab bar, blank, status; got %q", name, got)
+		if len(got) != 6 || got[1] != "" || !strings.HasPrefix(got[2], config.TabAll+" ") ||
+			strings.Trim(got[3], "─") != "" || got[3] == "" || got[4] != "" {
+			t.Errorf("%s: want title, blank, tab bar, rule, blank, status; got %q", name, got)
 		}
 	}
 	if got := headLines(t, twoBookmarks(t)); len(got) != 3 || got[1] != "" {
@@ -204,6 +206,90 @@ func TestTabsFitWindow(t *testing.T) {
 		}
 		if name != "filtering" && !strings.Contains(plain(m.View()), "q quit") {
 			t.Errorf("%s: the help line should show:\n%s", name, plain(m.View()))
+		}
+	}
+}
+
+// groupLook is groupModel with this [menu] selection.
+func groupLook(t *testing.T, selection string) Model {
+	t.Helper()
+	m := groupModel(t)
+	cfg := *m.cfg
+	cfg.Menu.Selection = selection
+	return started(New(&cfg, m.configPath)).sized(80, 40)
+}
+
+// firstBg is the column of the first cell drawn on this background, or -1.
+func firstBg(cs []cell, hex string) int {
+	return slices.IndexFunc(cs, func(c cell) bool { return c.bg == bg(hex) })
+}
+
+// The open tab is a block in the title badge's colors (with a space of the
+// block on each side), in both selection modes, and the other tabs are muted
+// text. The block starts in the badge's column.
+func TestOpenTabStyle(t *testing.T) {
+	withColor(t)
+	for _, sel := range []string{"block", "bar"} {
+		m := groupLook(t, sel)
+		line := cells(rawLine(t, m.View(), config.TabAll+" "))
+		before, word, after := find(t, line, "All")
+		for _, c := range word {
+			if c.bg != bg(nordAccent) || c.fg != fg(nordOnAccent) {
+				t.Fatalf("%s: want the open tab in %s on the accent, got fg %q bg %q", sel, nordOnAccent, c.fg, c.bg)
+			}
+		}
+		if len(before) == 0 || len(after) == 0 || before[len(before)-1].bg != bg(nordAccent) || after[0].bg != bg(nordAccent) {
+			t.Errorf("%s: want one space of the block on each side of the open tab", sel)
+		}
+		_, other, _ := find(t, line, "Config")
+		for _, c := range other {
+			if c.fg != fg(nordMuted) || c.bg != "" {
+				t.Fatalf("%s: want other tabs muted with no background, got fg %q bg %q", sel, c.fg, c.bg)
+			}
+		}
+		badge := firstBg(cells(rawLine(t, m.View(), "PATHPIN")), nordAccent)
+		if got := firstBg(line, nordAccent); got != badge || badge < 0 {
+			t.Errorf("%s: the open tab's block starts at column %d, want the badge's %d", sel, got, badge)
+		}
+	}
+}
+
+// Switching tabs only changes which tab is drawn as the block: the tab names
+// stay where they are.
+func TestTabsDontShift(t *testing.T) {
+	m := groupModel(t)
+	before := strings.TrimRight(plain(rawLine(t, m.View(), config.TabAll+" ")), " ")
+	m = pressTab(m)
+	if after := strings.TrimRight(plain(rawLine(t, m.View(), config.TabAll+" ")), " "); after != before {
+		t.Errorf("the tab bar moved:\nbefore %q\nafter  %q", before, after)
+	}
+}
+
+// A muted rule runs under the tab bar, from the badge's column to the list's
+// right edge.
+func TestTabRule(t *testing.T) {
+	withColor(t)
+	m := groupModel(t)
+	lines := strings.Split(m.View(), "\n")
+	bar := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(strings.TrimSpace(plain(l)), config.TabAll+" ") })
+	if bar < 0 || bar+1 >= len(lines) {
+		t.Fatalf("no tab bar:\n%s", plain(m.View()))
+	}
+	rule := cells(lines[bar+1])
+	first := slices.IndexFunc(rule, func(c cell) bool { return c.r == '─' })
+	last := -1
+	for i, c := range rule {
+		if c.r == '─' {
+			last = i
+		}
+	}
+	badge := firstBg(cells(rawLine(t, m.View(), "PATHPIN")), nordAccent)
+	if first < 0 || first != badge || last != m.list.Width() {
+		t.Errorf("want the rule from column %d to %d, got %d to %d: %q", badge, m.list.Width(), first, last, plain(lines[bar+1]))
+	}
+	for _, c := range rule[max(first, 0) : last+1] {
+		if c.r != '─' || c.fg != fg(nordMuted) {
+			t.Fatalf("want an unbroken muted rule, got %q in %q", string(c.r), c.fg)
 		}
 	}
 }

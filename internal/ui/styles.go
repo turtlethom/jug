@@ -24,9 +24,10 @@ type Styles struct {
 	item    list.DefaultItemStyles
 	missing list.DefaultItemStyles // rows whose folder is gone
 	pathEnd lipgloss.TerminalColor // a path's last folder: the label color
-	tabBar  lipgloss.Style         // the line of group tabs
+	tabBar  lipgloss.Style         // the line of group tabs, and the rule under it
 	tab     lipgloss.Style         // a tab
 	tabOpen lipgloss.Style         // the open tab
+	rule    lipgloss.Style         // the line under the tabs
 	picker  lipgloss.Style         // the theme picker's panel
 	picked  lipgloss.Style         // the picker's highlighted row
 }
@@ -109,9 +110,12 @@ func NewStyles(c config.Colors, selection string) Styles {
 		item:    item,
 		missing: missing,
 		pathEnd: text,
-		tabBar:  lipgloss.NewStyle().Padding(0, 0, 0, 2), // lines up with the title's text
-		tab:     lipgloss.NewStyle().Foreground(muted),
-		tabOpen: lipgloss.NewStyle().Foreground(primary).Bold(true),
+		// The open tab is a block like the title badge, and lines up with it.
+		// Every tab has the same padding, so switching tabs moves nothing.
+		tabBar:  lipgloss.NewStyle().Padding(0, 0, 0, 1),
+		tab:     lipgloss.NewStyle().Foreground(muted).Padding(0, 1),
+		tabOpen: lipgloss.NewStyle().Foreground(onPrimary).Background(primary).Bold(true).Padding(0, 1),
+		rule:    lipgloss.NewStyle().Foreground(muted),
 		picker:  lipgloss.NewStyle().MarginTop(1), // its › sits where the selected row's bar is
 		picked:  lipgloss.NewStyle().Foreground(primary).Bold(true),
 	}

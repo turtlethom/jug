@@ -356,7 +356,7 @@ func (m *Model) resize() {
 	h, v := m.styles.app.GetFrameSize()
 	reserved := 1 // the bottom line
 	if tabs(m.cfg) != nil {
-		reserved += 2 // a blank line, then the tab bar
+		reserved += 3 // a blank line, the tab bar and its rule
 	}
 	if m.picking() {
 		reserved += 1 + len(appearanceRows()) // a blank line, then the rows
@@ -875,13 +875,13 @@ func (m Model) choose() (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	body := m.list.View()
-	// The tab bar goes under the list's title line (the filter field while
-	// typing), after a blank line; the list's title padding gives the blank
-	// line below it. It's drawn here, not in the list's title, because the
-	// list cuts its title to the window width as one line.
+	// The tab bar and its rule go under the list's title line (the filter
+	// field while typing), after a blank line; the list's title padding gives
+	// the blank line below them. They're drawn here, not in the list's title,
+	// because the list cuts its title to the window width as one line.
 	if bar := m.tabBar(); bar != "" {
 		if title, rest, ok := strings.Cut(body, "\n"); ok {
-			body = title + "\n\n" + bar + "\n" + rest
+			body = title + "\n\n" + bar + "\n" + m.tabRule() + "\n" + rest
 		}
 	}
 	if len(m.list.Items()) == 0 {
@@ -896,8 +896,8 @@ func (m Model) View() string {
 	return m.styles.app.Render(body + "\n" + m.bottomLine())
 }
 
-// tabBar draws the tabs with the open one in the accent color, or "" when
-// there are no groups. It's cut to the list's width if there are many.
+// tabBar draws the tabs with the open one as a block like the title badge, or
+// "" when there are no groups. It's cut to the list's width if there are many.
 func (m Model) tabBar() string {
 	names := tabs(m.cfg)
 	if names == nil {
@@ -911,7 +911,14 @@ func (m Model) tabBar() string {
 		}
 		parts[i] = style.Render(n)
 	}
-	return m.styles.tabBar.MaxWidth(m.list.Width()).Render(strings.Join(parts, "  "))
+	return m.styles.tabBar.MaxWidth(m.list.Width()).Render(strings.Join(parts, " "))
+}
+
+// tabRule is the line under the tab bar, from the open tab's column to the
+// list's right edge.
+func (m Model) tabRule() string {
+	w := m.list.Width() - m.styles.tabBar.GetPaddingLeft()
+	return m.styles.tabBar.Render(m.styles.rule.Render(strings.Repeat("─", max(w, 0))))
 }
 
 // bottomLine is the prompt in confirm mode, otherwise the last message.
