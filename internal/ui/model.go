@@ -27,6 +27,7 @@ const (
 	modeBrowse  mode = iota // the list is active and keys trigger actions
 	modeConfirm             // a y/N prompt is showing; only y confirms
 	modeInput               // typing a label for a new bookmark
+	modeGroup               // typing a group for the highlighted bookmark (m)
 )
 
 // confirmAction is what a y/N prompt will do if confirmed.
@@ -57,7 +58,10 @@ type Model struct {
 
 	cwd      string // the directory pathpin was launched from; a adds it
 	input    textinput.Model
-	inputErr string // shown beside the label field until the next key
+	inputErr string // shown beside the label or group field until the next key
+
+	group  textinput.Model // m's field; suggests existing group names
+	moving string          // label of the bookmark the group field is for
 
 	// message is shown on the bottom line until the next key.
 	message    string
@@ -94,15 +98,26 @@ func New(cfg *config.Config, configPath string) Model {
 	l.StatusMessageLifetime = 3 * time.Second
 	setHelpKeys(&l, tabs(cfg) != nil)
 
+	group := newField(s, "Group: ")
+	group.ShowSuggestions = true // tab completes an existing group's name
+
+	cwd, _ := os.Getwd() // "" if it fails; a then reports the folder is gone
+	return Model{
+		mode: modeBrowse, list: l, styles: s, cfg: cfg, configPath: configPath, cwd: cwd,
+		input: newField(s, "Label: "), group: group, tab: config.TabAll,
+	}
+}
+
+// newField makes a text field for the bottom line.
+func newField(s Styles, prompt string) textinput.Model {
 	in := textinput.New()
-	in.Prompt = "Label: "
+	in.Prompt = prompt
 	in.CharLimit = 40
 	in.PromptStyle = s.filter
 	in.Cursor.Style = s.filter
 	in.PlaceholderStyle = s.muted
-
-	cwd, _ := os.Getwd() // "" if it fails; a then reports the folder is gone
-	return Model{mode: modeBrowse, list: l, styles: s, cfg: cfg, configPath: configPath, cwd: cwd, input: in, tab: config.TabAll}
+	in.CompletionStyle = s.muted
+	return in
 }
 
 // setHelpKeys adds pathpin's own keys to the list's ? help: tab only while
@@ -113,6 +128,7 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 			key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "remove")),
 			key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear")),
+			key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move")),
 		}
 		if withTabs {
 			k = append(k, key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "group")))
@@ -146,6 +162,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	case modeInput:
 		return m.updateInput(msg)
+	case modeGroup:
+		return m.updateGroup(msg)
 	}
 	return m, nil
 }
@@ -176,6 +194,8 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "a":
 			return m.startAdd()
+		case "m":
+			return m.startMove()
 		case "tab", "shift+tab":
 			names := tabs(m.cfg)
 			if names == nil {
@@ -389,6 +409,111 @@ func (m Model) add(label string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+displayLabel(added.Label)), m.syncTabs())
 }
 
+// startMove opens the group field for the highlighted bookmark, filled with
+// its group.
+func (m Model) startMove() (tea.Model, tea.Cmd) {
+	it, ok := m.list.SelectedItem().(item)
+	if !ok {
+		return m, nil // empty list
+	}
+	m.mode, m.inputErr, m.moving = modeGroup, "", it.Label
+	names := groupNames(m.cfg)
+	m.group.SetSuggestions(names)
+	m.group.SetValue(it.Group)
+	m.group.CursorEnd()
+	// Wide enough for any suggestion, so its completion shows; longer names
+	// scroll sideways.
+	m.group.Width = 12
+	for _, n := range names {
+		m.group.Width = max(m.group.Width, len([]rune(n))+1)
+	}
+	return m, m.group.Focus()
+}
+
+// updateGroup handles the group field: enter saves, esc cancels, and every
+// other key is typed (tab completes a suggestion here, it doesn't switch tabs).
+func (m Model) updateGroup(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "esc":
+			m.mode = modeBrowse
+			m.group.Blur()
+			return m, nil
+		case "enter":
+			return m.move(m.group.Value())
+		}
+		m.inputErr = ""
+		var cmd tea.Cmd
+		m.group, cmd = m.group.Update(msg)
+		return m, cmd
+	}
+	// Not a key: the cursor blink belongs to the field, status timeouts to the list.
+	var fieldCmd, listCmd tea.Cmd
+	m.group, fieldCmd = m.group.Update(msg)
+	m.list, listCmd = m.list.Update(msg)
+	return m, tea.Batch(fieldCmd, listCmd)
+}
+
+// move saves the group field's value as the bookmark's group, like add: change
+// a copy, save it, then swap it in. Errors keep the field open to fix.
+func (m Model) move(group string) (tea.Model, tea.Cmd) {
+	next := m.edit()
+	if err := next.SetGroup(m.moving, group); err != nil {
+		m.inputErr = err.Error()
+		return m, nil
+	}
+	// Unchanged (SetGroup has matched the spelling): don't save. Every save
+	// replaces config.toml.bak, so a save that changes nothing would throw
+	// away the last real backup.
+	before, _ := m.cfg.Find(m.moving)
+	if after, _ := next.Find(m.moving); after.Group == before.Group {
+		m.mode = modeBrowse
+		m.group.Blur()
+		status := displayLabel(before.Label) + " stays in " + before.Group
+		if before.Group == "" {
+			status = displayLabel(before.Label) + " still has no group"
+		}
+		return m, m.list.NewStatusMessage(status)
+	}
+	if err := config.Save(m.configPath, next); err != nil {
+		m.inputErr = "couldn't save: " + err.Error()
+		return m, nil
+	}
+
+	m.cfg = next
+	m.mode = modeBrowse
+	m.group.Blur()
+	moved, _ := next.Find(m.moving)
+	status := "Moved " + displayLabel(moved.Label) + " to " + moved.Group
+	if moved.Group == "" {
+		status = displayLabel(moved.Label) + " has no group now"
+	}
+
+	// Rebuild the open tab's rows, since the moved one may leave it. Keep the
+	// cursor on it if it's still here, else at the same spot. The filter is
+	// cleared first, as add does, so the rows show right away.
+	at := m.list.Index()
+	m.list.ResetFilter()
+	setCmd := m.list.SetItems(itemsFrom(m.cfg, m.tab))
+	if i := slices.IndexFunc(m.list.Items(), func(li list.Item) bool { return li.(item).Path == moved.Path }); i >= 0 {
+		at = i
+	}
+	m.list.Select(min(at, len(m.list.Items())-1))
+	return m, tea.Batch(setCmd, m.list.NewStatusMessage(status), m.syncTabs())
+}
+
+// groupNames are the group field's suggestions: the groups, minus any named
+// like a tab (those count as ungrouped).
+func groupNames(cfg *config.Config) []string {
+	var names []string
+	for _, g := range cfg.Groups() {
+		if !config.IsTabName(g) {
+			names = append(names, g)
+		}
+	}
+	return names
+}
+
 // choose cds to the highlighted bookmark, unless its folder is gone.
 func (m Model) choose() (tea.Model, tea.Cmd) {
 	it, ok := m.list.SelectedItem().(item)
@@ -448,12 +573,15 @@ func (m Model) bottomLine() string {
 		return m.styles.prompt.Render(fmt.Sprintf("Remove %s? y/N", displayLabel(m.pending.label)))
 	case m.mode == modeConfirm && m.pending.action == confirmClear:
 		return m.styles.prompt.Render(fmt.Sprintf("Delete all %d bookmarks? y/N", len(m.cfg.Bookmarks)))
-	case m.mode == modeInput:
-		hint := m.styles.muted.Render("enter save · esc cancel")
+	case m.mode == modeInput || m.mode == modeGroup:
+		field, hint := m.input, m.styles.muted.Render("enter save · esc cancel")
+		if m.mode == modeGroup {
+			field, hint = m.group, m.styles.muted.Render("tab complete · empty = no group")
+		}
 		if m.inputErr != "" {
 			hint = m.styles.errText.UnsetPadding().Render(m.inputErr)
 		}
-		return m.styles.note.Render(m.input.View() + "    " + hint)
+		return m.styles.note.Render(field.View() + "    " + hint)
 	case m.messageErr:
 		return m.styles.errText.Render(m.message)
 	}
