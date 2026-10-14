@@ -189,7 +189,7 @@ func TestThemeRowCyclesAndPreviews(t *testing.T) {
 	if !strings.Contains(pickerLine(t, m, "theme"), names[1]) {
 		t.Errorf("→ should show %s: %q", names[1], pickerLine(t, m, "theme"))
 	}
-	if colorsOf(m.styles) != colorsOf(NewStyles(config.Colors{Theme: names[1]})) {
+	if colorsOf(m.styles) != colorsOf(NewStyles(config.Colors{Theme: names[1]}, "")) {
 		t.Errorf("→ should switch the styles to %s", names[1])
 	}
 	m = left(left(m))
@@ -228,7 +228,7 @@ func TestThemePickerEscRestores(t *testing.T) {
 	if saved(m) || m.cfg.Colors != (config.Colors{Theme: "nord"}) {
 		t.Errorf("esc shouldn't save or change the colors, got %+v", m.cfg.Colors)
 	}
-	if colorsOf(m.styles) != colorsOf(NewStyles(m.cfg.Colors)) {
+	if colorsOf(m.styles) != colorsOf(NewStyles(m.cfg.Colors, "")) {
 		t.Error("esc should restore the saved colors")
 	}
 	_, word, _ := find(t, cells(rawLine(t, m.View(), "PATHPIN")), "PATHPIN")
@@ -326,7 +326,7 @@ func TestThemePickerSaves(t *testing.T) {
 	if cfg.Colors != want || !cfg.Menu.Icons || len(cfg.Bookmarks) != 2 {
 		t.Errorf("want colors %+v saved with icons and 2 bookmarks, got %+v, %+v, %d", want, cfg.Colors, cfg.Menu, len(cfg.Bookmarks))
 	}
-	if m.cfg.Colors != want || colorsOf(m.styles) != colorsOf(NewStyles(want)) {
+	if m.cfg.Colors != want || colorsOf(m.styles) != colorsOf(NewStyles(want, "")) {
 		t.Error("the menu should keep the saved colors")
 	}
 	if !strings.Contains(plain(m.View()), "Colors saved") {

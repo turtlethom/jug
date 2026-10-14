@@ -38,7 +38,7 @@ func TestThemeNames(t *testing.T) {
 // terminal uses the terminal's own palette, so it follows the terminal's theme.
 func TestTerminalTheme(t *testing.T) {
 	for _, c := range []config.Colors{{}, {Theme: "terminal"}, {Theme: "Terminal"}} {
-		got := colorsOf(NewStyles(c))
+		got := colorsOf(NewStyles(c, ""))
 		want := themeColors{
 			accent:   lipgloss.Color("6"),
 			onAccent: lipgloss.Color("15"),
@@ -57,7 +57,7 @@ func TestTerminalTheme(t *testing.T) {
 func TestPresetThemes(t *testing.T) {
 	seen := map[themeColors]string{}
 	for _, name := range ThemeNames()[1:] {
-		got := colorsOf(NewStyles(config.Colors{Theme: name}))
+		got := colorsOf(NewStyles(config.Colors{Theme: name}, ""))
 		for slot, c := range map[string]lipgloss.TerminalColor{
 			"accent": got.accent, "on accent": got.onAccent, "text": got.text, "muted": got.muted, "error": got.err,
 		} {
@@ -77,27 +77,27 @@ func TestPresetThemes(t *testing.T) {
 	}
 
 	// Names match in any case, like labels.
-	if colorsOf(NewStyles(config.Colors{Theme: "NORD"})) != colorsOf(NewStyles(config.Colors{Theme: "nord"})) {
+	if colorsOf(NewStyles(config.Colors{Theme: "NORD"}, "")) != colorsOf(NewStyles(config.Colors{Theme: "nord"}, "")) {
 		t.Error("theme names should match in any case")
 	}
 }
 
 // Colors set in [colors] win over the theme's, one slot at a time.
 func TestColorsOverrideTheme(t *testing.T) {
-	nord := colorsOf(NewStyles(config.Colors{Theme: "nord"}))
+	nord := colorsOf(NewStyles(config.Colors{Theme: "nord"}, ""))
 	got := colorsOf(NewStyles(config.Colors{
 		Theme:        "nord",
 		Primary:      "#123456",
 		SelectedText: "#ABCDEF",
 		Error:        "#FF0000",
-	}))
+	}, ""))
 	want := nord
 	want.accent, want.onAccent, want.err = lipgloss.Color("#123456"), lipgloss.Color("#ABCDEF"), lipgloss.Color("#FF0000")
 	if got != want {
 		t.Errorf("overrides:\n got %+v\nwant %+v", got, want)
 	}
 
-	got = colorsOf(NewStyles(config.Colors{Secondary: "#EEEEEE", Tertiary: "#777777"}))
+	got = colorsOf(NewStyles(config.Colors{Secondary: "#EEEEEE", Tertiary: "#777777"}, ""))
 	if got.text != lipgloss.Color("#EEEEEE") || got.muted != lipgloss.Color("#777777") {
 		t.Errorf("secondary/tertiary should override terminal's, got %+v", got)
 	}
@@ -105,7 +105,7 @@ func TestColorsOverrideTheme(t *testing.T) {
 
 // A misspelled theme falls back to terminal (cmd prints the warning).
 func TestUnknownThemeFallsBack(t *testing.T) {
-	if colorsOf(NewStyles(config.Colors{Theme: "nrod"})) != colorsOf(NewStyles(config.Colors{})) {
+	if colorsOf(NewStyles(config.Colors{Theme: "nrod"}, "")) != colorsOf(NewStyles(config.Colors{}, "")) {
 		t.Error("an unknown theme should look like terminal")
 	}
 }
@@ -140,7 +140,7 @@ func luminance(c lipgloss.Color) float64 {
 // A value that isn't a color is ignored, so the theme's color shows instead of
 // none (cmd prints the warning). Hex is #RGB or #RRGGBB; ANSI is 0-255.
 func TestInvalidColorsAreIgnored(t *testing.T) {
-	nord := colorsOf(NewStyles(config.Colors{Theme: "nord"}))
+	nord := colorsOf(NewStyles(config.Colors{Theme: "nord"}, ""))
 	got := colorsOf(NewStyles(config.Colors{
 		Theme:        "nord",
 		Primary:      "monokai-pro-ristretto",
@@ -148,13 +148,13 @@ func TestInvalidColorsAreIgnored(t *testing.T) {
 		Tertiary:     "256",
 		SelectedText: "#12345",
 		Error:        "red",
-	}))
+	}, ""))
 	if got != nord {
 		t.Errorf("invalid colors should leave the theme's:\n got %+v\nwant %+v", got, nord)
 	}
 
 	for _, ok := range []string{"#56B6C2", "#56b6c2", "#abc", "0", "6", "255"} {
-		if got := colorsOf(NewStyles(config.Colors{Primary: ok})); got.accent != lipgloss.Color(ok) {
+		if got := colorsOf(NewStyles(config.Colors{Primary: ok}, "")); got.accent != lipgloss.Color(ok) {
 			t.Errorf("%q is a color, got accent %v", ok, got.accent)
 		}
 	}

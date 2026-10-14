@@ -453,6 +453,37 @@ func (e rootEnv) withColors(t *testing.T, lines string) {
 	writeFile(t, e.configPath, "[[bookmark]]\nlabel = \"NOTES\"\npath = \"~/notes\"\n\n[colors]\n"+lines)
 }
 
+// An unknown [menu] selection gets one warning line when the menu opens, and
+// the menu still opens (in block mode). Jumps don't warn, and the known
+// values, in any case, never do.
+func TestUnknownSelectionWarns(t *testing.T) {
+	e := newRootEnv(t)
+	e.withColors(t, "[menu]\nselection = \"bars\"\n")
+	opened := false
+	_, stderr, err := e.run(t, func(*config.Config, string) (string, error) {
+		opened = true
+		return "", nil
+	})
+	if err != nil || !opened {
+		t.Fatalf("an unknown selection should not stop the menu (err %v, opened %v)", err, opened)
+	}
+	want := `[menu] selection = "bars" is not block or bar, using block`
+	if !strings.Contains(stderr, want) || strings.Count(stderr, "\n") != 1 {
+		t.Errorf("want one line %q, got %q", want, stderr)
+	}
+	if _, stderr, err := e.run(t, noMenu(t), "notes"); err != nil || stderr != "" {
+		t.Errorf("pathpin notes: want no warning, got err %v, stderr %q", err, stderr)
+	}
+
+	for _, ok := range []string{"bar", "Block", ""} {
+		e.withColors(t, fmt.Sprintf("[menu]\nselection = %q\n", ok))
+		_, stderr, err := e.run(t, func(*config.Config, string) (string, error) { return "", nil })
+		if err != nil || stderr != "" {
+			t.Errorf("selection %q should not warn, got err %v, stderr %q", ok, err, stderr)
+		}
+	}
+}
+
 // A [colors] value that isn't a color gets one warning line each when the
 // menu opens. A theme name in a color key suggests the theme key instead.
 func TestInvalidColorWarns(t *testing.T) {

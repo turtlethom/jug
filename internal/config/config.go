@@ -51,9 +51,10 @@ type Colors struct {
 	Error        string `toml:"error,omitempty"`
 }
 
-// Menu holds the menu's display options. Each is off unless set.
+// Menu holds the menu's display options. Unset, each keeps the default look.
 type Menu struct {
-	Icons bool `toml:"icons,omitempty"` // Nerd Font icons before labels
+	Icons     bool   `toml:"icons,omitempty"`     // Nerd Font icons before labels
+	Selection string `toml:"selection,omitempty"` // the selected row: "block" (default) or "bar"
 }
 
 // Config is the whole configuration file.

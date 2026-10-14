@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
 
@@ -29,6 +31,20 @@ type Styles struct {
 	picked  lipgloss.Style         // the picker's highlighted row
 }
 
+// The ways to show the selected row, set with [menu] selection. Empty means
+// block.
+const (
+	selectBlock = "block" // the label is a block of selected_text on primary (fcd's look)
+	selectBar   = "bar"   // just the bar; the label is bold in primary
+)
+
+// KnownSelection reports whether s is a [menu] selection the menu knows, in
+// any case. Empty counts, since it means block; anything else unknown gives
+// block too, and cmd warns about it.
+func KnownSelection(s string) bool {
+	return s == "" || strings.EqualFold(s, selectBlock) || strings.EqualFold(s, selectBar)
+}
+
 // NewStyles builds the menu's styles from the user's theme (default:
 // terminal, which follows the terminal's own palette), then applies any colors
 // set in [colors] on top, one at a time:
@@ -40,8 +56,9 @@ type Styles struct {
 //   - error: errors on the bottom line.
 //
 // An unknown theme gives terminal, and a value that isn't a color is ignored;
-// cmd warns about both.
-func NewStyles(c config.Colors) Styles {
+// cmd warns about both. selection is [menu] selection: bar shows the selected
+// row with just the bar, anything else as a block.
+func NewStyles(c config.Colors, selection string) Styles {
 	theme, _ := lookupTheme(c.Theme)
 	primary := pick(c.Primary, theme.accent)
 	onPrimary := pick(c.SelectedText, theme.onAccent)
@@ -59,17 +76,22 @@ func NewStyles(c config.Colors) Styles {
 	// one space shows on each side), and its path is underlined. The list cuts
 	// titles to fit NormalTitle's padding, so it gets the same right padding
 	// (invisible without a background) or the block would overflow the window
-	// by a column.
+	// by a column. In bar mode the label is just in the accent color.
+	selected := bar.Foreground(onPrimary).Background(primary).Bold(true).PaddingRight(1)
+	if strings.EqualFold(selection, selectBar) {
+		selected = bar.Foreground(primary).Bold(true).PaddingRight(1)
+	}
 	item := list.DefaultItemStyles{
 		NormalTitle:   plain.Foreground(text).PaddingRight(1),
 		NormalDesc:    plain.Foreground(muted),
-		SelectedTitle: bar.Foreground(onPrimary).Background(primary).Bold(true).PaddingRight(1),
+		SelectedTitle: selected,
 		SelectedDesc:  bar.Foreground(muted).Underline(true),
 		DimmedTitle:   plain.Foreground(muted),
 		DimmedDesc:    plain.Foreground(muted),
 		FilterMatch:   lipgloss.NewStyle().Underline(true),
 	}
-	// The block means "enter goes here", so a missing row never gets it.
+	// The block means "enter goes here", so a missing row never gets it. In
+	// bar mode there's no block to remove, so missing rows look the same.
 	missing := item
 	missing.NormalTitle = item.NormalTitle.Foreground(muted)
 	missing.SelectedTitle = item.SelectedTitle.UnsetBackground().Foreground(muted)

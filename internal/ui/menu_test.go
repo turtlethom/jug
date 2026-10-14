@@ -167,7 +167,7 @@ func TestEmptyState(t *testing.T) {
 }
 
 func TestNewStyles(t *testing.T) {
-	def := NewStyles(config.Colors{})
+	def := NewStyles(config.Colors{}, "")
 	if got := def.item.SelectedTitle.GetBackground(); got != lipgloss.Color("6") {
 		t.Errorf("default primary: got %v, want ANSI 6", got)
 	}
@@ -175,7 +175,7 @@ func TestNewStyles(t *testing.T) {
 		t.Errorf("default tertiary: got %v, want ANSI 8", got)
 	}
 
-	set := NewStyles(config.Colors{Primary: "#56B6C2", Tertiary: "#777777"})
+	set := NewStyles(config.Colors{Primary: "#56B6C2", Tertiary: "#777777"}, "")
 	if got := set.item.SelectedTitle.GetBackground(); got != lipgloss.Color("#56B6C2") {
 		t.Errorf("configured primary: got %v", got)
 	}
@@ -188,7 +188,7 @@ func TestNewStyles(t *testing.T) {
 // the primary color, and the path below it is underlined in the tertiary
 // color. Unselected rows keep the plain look.
 func TestSelectedRowStyle(t *testing.T) {
-	s := NewStyles(config.Colors{Primary: "#56B6C2", Tertiary: "#777777"})
+	s := NewStyles(config.Colors{Primary: "#56B6C2", Tertiary: "#777777"}, "")
 
 	title := s.item.SelectedTitle
 	if title.GetBackground() != lipgloss.Color("#56B6C2") || title.GetForeground() != lipgloss.Color("15") || !title.GetBold() {
@@ -220,6 +220,55 @@ func TestSelectedRowStyle(t *testing.T) {
 	if gone.GetForeground() != lipgloss.Color("#777777") || !gone.GetBorderLeft() {
 		t.Errorf("selected missing label: want tertiary text and the bar, got fg %v bar %v",
 			gone.GetForeground(), gone.GetBorderLeft())
+	}
+}
+
+// [menu] selection = "bar" drops the block: the selected label is bold in the
+// primary color, with the bar, and its path is underlined as in block mode.
+// The name matches in any case; "" and unknown values give the block. Missing
+// rows look the same in both modes.
+func TestSelectionStyle(t *testing.T) {
+	c := config.Colors{Primary: "#56B6C2", Tertiary: "#777777"}
+	block := NewStyles(c, "")
+	for _, sel := range []string{"bar", "BAR"} {
+		s := NewStyles(c, sel)
+		title := s.item.SelectedTitle
+		if _, ok := title.GetBackground().(lipgloss.NoColor); !ok {
+			t.Errorf("%s: the selected label should have no background, got %v", sel, title.GetBackground())
+		}
+		if title.GetForeground() != lipgloss.Color("#56B6C2") || !title.GetBold() || !title.GetBorderLeft() {
+			t.Errorf("%s: selected label: want bold primary with the bar, got fg %v bold %v bar %v",
+				sel, title.GetForeground(), title.GetBold(), title.GetBorderLeft())
+		}
+		// Same right padding as other rows, so long labels are cut at the same width.
+		if title.GetPaddingRight() != s.item.NormalTitle.GetPaddingRight() {
+			t.Errorf("%s: selected label padding %d, want %d like other rows",
+				sel, title.GetPaddingRight(), s.item.NormalTitle.GetPaddingRight())
+		}
+		desc := s.item.SelectedDesc
+		if desc.GetForeground() != lipgloss.Color("#777777") || !desc.GetUnderline() || !desc.GetBorderLeft() {
+			t.Errorf("%s: selected path: want underlined tertiary with the bar, got fg %v underline %v bar %v",
+				sel, desc.GetForeground(), desc.GetUnderline(), desc.GetBorderLeft())
+		}
+		gone, want := s.missing.SelectedTitle, block.missing.SelectedTitle
+		if gone.GetForeground() != want.GetForeground() || gone.GetBackground() != want.GetBackground() ||
+			gone.GetBorderLeft() != want.GetBorderLeft() {
+			t.Errorf("%s: a selected missing row should look as in block mode", sel)
+		}
+	}
+	for _, sel := range []string{"", "block", "Block", "bars"} {
+		if got := NewStyles(c, sel).item.SelectedTitle.GetBackground(); got != lipgloss.Color("#56B6C2") {
+			t.Errorf("selection %q: want the block (primary background), got %v", sel, got)
+		}
+	}
+}
+
+// KnownSelection accepts "" (the default) and the two names, in any case.
+func TestKnownSelection(t *testing.T) {
+	for sel, want := range map[string]bool{"": true, "block": true, "Bar": true, "BLOCK": true, "bars": false, "underline": false} {
+		if got := KnownSelection(sel); got != want {
+			t.Errorf("KnownSelection(%q) = %v, want %v", sel, got, want)
+		}
 	}
 }
 

@@ -170,6 +170,43 @@ func TestTitleBadge(t *testing.T) {
 	}
 }
 
+// barModel is a two-bookmark menu (NOTES selected) in nord with
+// [menu] selection = "bar".
+func barModel(t *testing.T) Model {
+	t.Helper()
+	m := newTestModel(t, config.Bookmark{Label: "NOTES", Path: "notes"}, config.Bookmark{Label: "WORK", Path: "work"})
+	cfg := &config.Config{Colors: config.Colors{Theme: "nord"}, Menu: config.Menu{Selection: "bar"}, Bookmarks: m.cfg.Bookmarks}
+	return started(New(cfg, m.configPath)).sized(80, 24)
+}
+
+// In bar mode the selected label is drawn in the accent with no background,
+// while the title keeps its badge. The theme picker's preview keeps the bar.
+func TestBarSelectionRendered(t *testing.T) {
+	withColor(t)
+	m := barModel(t)
+	_, label, _ := find(t, cells(rawLine(t, m.View(), "NOTES")), "NOTES")
+	for _, c := range label {
+		if c.bg != "" || c.fg != fg(nordAccent) {
+			t.Fatalf("want the selected label in the accent (%s) with no background, got fg %q bg %q", nordAccent, c.fg, c.bg)
+		}
+	}
+	_, title, _ := find(t, cells(rawLine(t, m.View(), "PATHPIN")), "PATHPIN")
+	for _, c := range title {
+		if c.bg != bg(nordAccent) {
+			t.Fatalf("the title should keep its badge in bar mode, got bg %q", c.bg)
+		}
+	}
+
+	m, _ = press(m, runes("t"))
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyRight}) // the next theme, previewed
+	_, label, _ = find(t, cells(rawLine(t, m.View(), "NOTES")), "NOTES")
+	for _, c := range label {
+		if c.bg != "" {
+			t.Fatalf("the picker's preview should keep the bar, got a background %q on the label", c.bg)
+		}
+	}
+}
+
 // A path's last folder is in the label color; the rest stays muted. This holds
 // on the selected row too, but not on a missing row, which stays dimmed.
 func TestPathEmphasis(t *testing.T) {

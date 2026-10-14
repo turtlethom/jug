@@ -205,7 +205,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 			{Label: "TMP", Path: outside},
 		},
 		Colors: Colors{Theme: "nord", Primary: "#56B6C2", SelectedText: "#2E3440", Error: "#BF616A"},
-		Menu:   Menu{Icons: true},
+		Menu:   Menu{Icons: true, Selection: "bar"},
 	}
 	snapshot := *want
 	snapshot.Bookmarks = append([]Bookmark(nil), want.Bookmarks...)
@@ -224,7 +224,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if !strings.Contains(disk, outside) {
 		t.Errorf("paths outside $HOME should be written as-is; file:\n%s", disk)
 	}
-	for _, key := range []string{`theme = "nord"`, `selected_text = "#2E3440"`, `error = "#BF616A"`, "[menu]\nicons = true"} {
+	for _, key := range []string{`theme = "nord"`, `selected_text = "#2E3440"`, `error = "#BF616A"`, "[menu]\nicons = true", `selection = "bar"`} {
 		if !strings.Contains(disk, key) {
 			t.Errorf("want %s in [colors]; file:\n%s", key, disk)
 		}

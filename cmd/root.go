@@ -45,7 +45,7 @@ Set up your shell first: see 'pathpin init --help'.`, name),
 			if len(args) > 0 {
 				return jump(cmd, cfg, strings.Join(args, " "))
 			}
-			warnAboutColors(cmd, cfg.Colors)
+			warnAboutStyle(cmd, cfg)
 			dir, err := menu(cfg, path)
 			if err != nil || dir == "" {
 				return err
@@ -94,12 +94,13 @@ func loadConfig(cmd *cobra.Command) (*config.Config, string, error) {
 	return cfg, path, nil
 }
 
-// warnAboutColors prints one line for an unknown theme and for each [colors]
-// value that isn't a color. The menu falls back for both, and only the menu
-// uses colors, so this runs just before it opens. Like the migration line, it
-// shows once the menu's screen closes.
-func warnAboutColors(cmd *cobra.Command, c config.Colors) {
-	errOut, me := cmd.ErrOrStderr(), cmd.Root().Name()
+// warnAboutStyle prints one line for an unknown theme, for each [colors]
+// value that isn't a color, and for an unknown [menu] selection. The menu
+// falls back for all of them, and only the menu uses them, so this runs just
+// before it opens. Like the migration line, it shows once the menu's screen
+// closes.
+func warnAboutStyle(cmd *cobra.Command, cfg *config.Config) {
+	errOut, me, c := cmd.ErrOrStderr(), cmd.Root().Name(), cfg.Colors
 	if !ui.KnownTheme(c.Theme) {
 		fmt.Fprintf(errOut, "%s: unknown theme %q, using terminal. Themes: %s\n",
 			me, c.Theme, strings.Join(ui.ThemeNames(), ", "))
@@ -110,6 +111,9 @@ func warnAboutColors(cmd *cobra.Command, c config.Colors) {
 			hint = fmt.Sprintf("Did you mean theme = %q?", bad.Value)
 		}
 		fmt.Fprintf(errOut, "%s: [colors] %s = %q is not a color, ignoring it. %s\n", me, bad.Key, bad.Value, hint)
+	}
+	if !ui.KnownSelection(cfg.Menu.Selection) {
+		fmt.Fprintf(errOut, "%s: [menu] selection = %q is not block or bar, using block\n", me, cfg.Menu.Selection)
 	}
 }
 

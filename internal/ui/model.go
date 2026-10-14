@@ -123,14 +123,15 @@ func New(cfg *config.Config, configPath string) Model {
 	return m
 }
 
-// restyle draws the menu in these colors. New calls it with the saved colors,
-// and the theme picker with its draft on every change.
+// restyle draws the menu in these colors, with the saved [menu] selection.
+// New calls it with the saved colors, and the theme picker with its draft on
+// every change.
 //
 // The styles live in several places, not just m.styles: the list keeps its own
 // copies (title, status bar, filter), the delegate draws the rows, and each
 // text field styles its prompt. So all of them are set here, in one place.
 func (m *Model) restyle(c config.Colors) {
-	s := NewStyles(c)
+	s := NewStyles(c, m.cfg.Menu.Selection)
 	m.styles = s
 
 	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd}
