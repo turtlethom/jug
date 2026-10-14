@@ -110,6 +110,9 @@ func New(cfg *config.Config, configPath string) Model {
 	l.Filter = filterByRune
 	l.SetStatusBarItemName("bookmark", "bookmarks")
 	l.StatusMessageLifetime = 3 * time.Second
+	// pathpin draws the help itself (helpView): bubbles' can't cut its line to
+	// a narrow window. The list still toggles it with ? and says which keys apply.
+	l.SetShowHelp(false)
 	setHelpKeys(&l, tabs(cfg) != nil)
 
 	group := newField("Group: ")
@@ -143,6 +146,17 @@ func (m *Model) restyle(cfg *config.Config) {
 	m.list.Styles.StatusEmpty = s.status
 	m.list.FilterInput.PromptStyle = s.filter
 	m.list.FilterInput.Cursor.Style = s.filter
+	m.list.Styles.StatusBarFilterCount = s.muted
+	m.list.Styles.DividerDot = s.muted.SetString(" • ")
+	m.list.Styles.NoItems = s.muted
+	m.list.Styles.ArabicPagination = s.muted
+	// The paginator keeps its own copy of the dots, made when the list was.
+	m.list.Paginator.ActiveDot = s.key.Render("•")
+	m.list.Paginator.InactiveDot = s.muted.Render("•")
+	// The full help (?) is still bubbles' columns.
+	hs := &m.list.Help.Styles
+	hs.FullKey, hs.FullDesc, hs.FullSeparator, hs.Ellipsis = s.key, s.muted, s.muted, s.muted
+	hs.ShortKey, hs.ShortDesc, hs.ShortSeparator = s.key, s.muted, s.muted
 
 	for _, f := range []*textinput.Model{&m.input, &m.group, &m.hex} {
 		f.PromptStyle = s.filter
@@ -339,12 +353,19 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	var cmd tea.Cmd
+	helpHeight := lipgloss.Height(m.helpView())
 	m.list, cmd = m.list.Update(msg)
+	// ? opens or closes the full help, and filtering changes its keys. The
+	// list doesn't count the help (pathpin draws it), so make room here.
+	if lipgloss.Height(m.helpView()) != helpHeight {
+		m.resize()
+	}
 	return m, cmd
 }
 
-// resize fits the list to the window, leaving room for the bottom line,
-// the tab bar while there are groups, and the theme picker while it's open.
+// resize fits the list to the window, leaving room for the bottom line, the
+// help, the tab bar while there are groups, and the theme picker while it's
+// open. The list keeps a column of margin on each side.
 //
 // It has a pointer receiver so it can change the Model it's called on. Update
 // has a value receiver, so the m it holds is its own copy and calling
@@ -354,7 +375,13 @@ func (m *Model) resize() {
 		return // no window size yet; Bubble Tea sends one at start
 	}
 	h, v := m.styles.app.GetFrameSize()
+	// The frame has no right padding, so the help line can use that column;
+	// the list keeps it as a margin.
+	h++
 	reserved := 1 // the bottom line
+	if help := m.helpView(); help != "" {
+		reserved += lipgloss.Height(help)
+	}
 	if tabs(m.cfg) != nil {
 		reserved += 3 // a blank line, the tab bar and its rule
 	}
@@ -365,11 +392,14 @@ func (m *Model) resize() {
 }
 
 // showTab opens a tab: it clears any filter and shows that tab's bookmarks.
+// Clearing the filter can shorten the full help (no esc clear filter), so it
+// resizes too.
 func (m *Model) showTab(name string) tea.Cmd {
 	m.tab = name
 	m.list.ResetFilter()
 	cmd := m.list.SetItems(itemsFrom(m.cfg, name, m.gone))
 	m.list.Select(0)
+	m.resize()
 	return cmd
 }
 
@@ -884,8 +914,12 @@ func (m Model) View() string {
 			body = title + "\n\n" + bar + "\n" + m.tabRule() + "\n" + rest
 		}
 	}
+	if help := m.helpView(); help != "" {
+		body += "\n" + help
+	}
 	if len(m.list.Items()) == 0 {
-		// Same title bar as the list draws, so the title doesn't jump when it empties.
+		// Same title bar as the list draws, so the title doesn't jump when it
+		// empties. No help: the message says what to do.
 		body = m.list.Styles.TitleBar.Render(m.styles.title.Render(menuTitle)) + "\n" + m.styles.empty.Render(emptyMessage) + "\n"
 	}
 	if m.picking() {
@@ -938,21 +972,21 @@ func (m Model) bottomLine() string {
 		}
 		return m.styles.prompt.Render(fmt.Sprintf("Ungroup %s%s in %s? y/N", all, bookmarks(n), m.pending.from))
 	case m.mode == modeTheme && !m.messageErr:
-		return m.styles.note.Render(m.styles.muted.Render(pickerKeys))
+		return m.styles.note.Render(m.hints(0, pickerKeys...))
 	case m.mode == modeInput || m.mode == modeGroup || m.mode == modeRename || m.mode == modeGroupName || m.mode == modeHex:
-		field, hint := m.input, m.styles.muted.Render("enter save · esc cancel")
+		field, keys := m.input, m.hints(0, hint{"enter", "save"}, hint{"esc", "cancel"})
 		switch m.mode {
 		case modeHex:
-			field, hint = m.hex, m.styles.muted.Render("enter set · esc back")
+			field, keys = m.hex, m.hints(0, hint{"enter", "set"}, hint{"esc", "back"})
 		case modeGroup:
-			field, hint = m.group, m.styles.muted.Render("tab complete · empty = no group")
+			field, keys = m.group, m.hints(0, hint{"tab", "complete"}, hint{"", "empty = no group"})
 		case modeGroupName:
 			field = m.group
 		}
 		if m.inputErr != "" {
-			hint = m.styles.errText.UnsetPadding().Render(m.inputErr)
+			keys = m.styles.errText.UnsetPadding().Render(m.inputErr)
 		}
-		return m.styles.note.Render(field.View() + "    " + hint)
+		return m.styles.note.Render(field.View() + "    " + keys)
 	case m.messageErr:
 		return m.styles.errText.Render(m.message)
 	}

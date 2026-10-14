@@ -21,6 +21,8 @@ type Styles struct {
 	note    lipgloss.Style // messages on the bottom line
 	errText lipgloss.Style // errors on the bottom line
 	muted   lipgloss.Style // hints and placeholders
+	key     lipgloss.Style // the keys in key hints
+	help    lipgloss.Style // the help under the list
 	item    list.DefaultItemStyles
 	missing list.DefaultItemStyles // rows whose folder is gone
 	pathEnd lipgloss.TerminalColor // a path's last folder: the label color
@@ -98,7 +100,9 @@ func NewStyles(c config.Colors, selection string) Styles {
 	missing.SelectedTitle = item.SelectedTitle.UnsetBackground().Foreground(muted)
 
 	return Styles{
-		app:     lipgloss.NewStyle().Padding(1, 1, 0, 1),
+		// No right padding: resize keeps the list a column short of the right
+		// edge, and only the help line may use that column.
+		app:     lipgloss.NewStyle().Padding(1, 0, 0, 1),
 		title:   lipgloss.NewStyle().Foreground(onPrimary).Background(primary).Bold(true).Padding(0, 1), // a badge, like the selected row
 		status:  lipgloss.NewStyle().Foreground(muted).Padding(0, 0, 1, 2),
 		empty:   lipgloss.NewStyle().Foreground(muted).Padding(0, 0, 0, 2),
@@ -107,6 +111,8 @@ func NewStyles(c config.Colors, selection string) Styles {
 		note:    lipgloss.NewStyle().Foreground(text).Padding(0, 0, 0, 2),
 		errText: lipgloss.NewStyle().Foreground(errColor).Padding(0, 0, 0, 2),
 		muted:   lipgloss.NewStyle().Foreground(muted),
+		key:     lipgloss.NewStyle().Foreground(primary),
+		help:    lipgloss.NewStyle().Padding(1, 0, 0, 2), // a blank line, then in line with the labels
 		item:    item,
 		missing: missing,
 		pathEnd: text,

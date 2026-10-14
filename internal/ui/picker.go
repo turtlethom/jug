@@ -90,25 +90,24 @@ func colorValues() []string {
 	return values
 }
 
-// pickerKeys is the picker's bottom line.
-const pickerKeys = "←→ change · # hex · d reset · enter save · esc cancel"
+// pickerKeys are the picker's keys, on the bottom line.
+var pickerKeys = []hint{{"←→", "change"}, {"#", "hex"}, {"d", "reset"}, {"enter", "save"}, {"esc", "cancel"}}
 
 // picking reports whether the picker shows: its rows, or its hex field.
 func (m Model) picking() bool { return m.mode == modeTheme || m.mode == modeHex }
 
 // startTheme opens the picker on the theme row, with a copy of the config as
-// the draft. The list's help hides meanwhile, since its keys don't apply.
+// the draft. The help hides meanwhile (see helpView), since its keys don't
+// apply.
 func (m Model) startTheme() (tea.Model, tea.Cmd) {
 	m.mode, m.themeRow, m.draft = modeTheme, 0, *m.edit()
-	m.list.SetShowHelp(false)
-	m.resize() // the list shrinks to make room for the rows
+	m.resize() // the list shrinks to make room for the rows (and the help hides)
 	return m, nil
 }
 
 // closePicker goes back to browsing. The caller restyles first if needed.
 func (m Model) closePicker() Model {
 	m.mode = modeBrowse
-	m.list.SetShowHelp(true)
 	m.resize()
 	return m
 }
