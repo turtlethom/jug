@@ -620,3 +620,87 @@ func TestSuggestLabel(t *testing.T) {
 		}
 	}
 }
+
+// Groups lists group names in the order they first appear. Names match in any
+// case and keep their first spelling; ungrouped bookmarks aren't a group.
+func TestGroups(t *testing.T) {
+	cfg := &Config{Bookmarks: []Bookmark{
+		{Label: "A", Path: "/a", Group: "Config"},
+		{Label: "B", Path: "/b"},
+		{Label: "C", Path: "/c", Group: "school"},
+		{Label: "D", Path: "/d", Group: "config"},
+		{Label: "E", Path: "/e", Group: "School"},
+		{Label: "F", Path: "/f", Group: "Work"},
+	}}
+	want := []string{"Config", "school", "Work"}
+	if got := cfg.Groups(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Groups() = %q, want %q", got, want)
+	}
+	if got := (&Config{Bookmarks: []Bookmark{{Label: "A", Path: "/a"}}}).Groups(); len(got) != 0 {
+		t.Errorf("no groups: got %q", got)
+	}
+}
+
+// SetGroup moves a bookmark to a group, by label in any case. A name that
+// matches an existing group joins it with that group's spelling, so the file
+// stays consistent. An empty (or blank) name removes the group.
+func TestSetGroup(t *testing.T) {
+	cfg := &Config{Bookmarks: []Bookmark{
+		{Label: "NVIM", Path: "/n"},
+		{Label: "NOTES", Path: "/o", Group: "School"},
+	}}
+
+	if err := cfg.SetGroup("nvim", "  Config "); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Bookmarks[0].Group; got != "Config" {
+		t.Errorf("new group: got %q, want Config (trimmed)", got)
+	}
+
+	if err := cfg.SetGroup("NVIM", "school"); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Bookmarks[0].Group; got != "School" {
+		t.Errorf("existing group: got %q, want School (its first spelling)", got)
+	}
+
+	for _, empty := range []string{"", "   "} {
+		cfg.Bookmarks[0].Group = "Config"
+		if err := cfg.SetGroup("nvim", empty); err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.Bookmarks[0].Group; got != "" {
+			t.Errorf("SetGroup(%q) should remove the group, got %q", empty, got)
+		}
+	}
+
+	if err := cfg.SetGroup("missing", "Work"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown label: want ErrNotFound, got %v", err)
+	}
+
+	// All and Other are the menu's tab names (every bookmark, and the
+	// ungrouped ones), so they can't be groups. The bookmark keeps its group.
+	cfg.Bookmarks[0].Group = "Config"
+	for _, tab := range []string{"All", "other", " OTHER "} {
+		if err := cfg.SetGroup("nvim", tab); !errors.Is(err, ErrReservedGroup) {
+			t.Errorf("SetGroup(%q): want ErrReservedGroup, got %v", tab, err)
+		}
+		if got := cfg.Bookmarks[0].Group; got != "Config" {
+			t.Errorf("SetGroup(%q) changed the group to %q", tab, got)
+		}
+	}
+}
+
+// A hand-edited group name is trimmed when loaded, like a label.
+func TestLoadTrimsGroups(t *testing.T) {
+	home := setupHome(t)
+	path := filepath.Join(home, ".config", "pathpin", "config.toml")
+	writeFile(t, path, "[[bookmark]]\nlabel = \"NVIM\"\npath = \"/n\"\ngroup = \"  Config \"\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Bookmarks[0].Group; got != "Config" {
+		t.Errorf("group: got %q, want Config", got)
+	}
+}

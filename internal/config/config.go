@@ -68,6 +68,15 @@ var (
 	ErrDuplicate = errors.New("bookmark already exists")
 	// ErrNotFound means no bookmark has the given label.
 	ErrNotFound = errors.New("bookmark not found")
+	// ErrReservedGroup means a group name is one of the menu's tab names.
+	ErrReservedGroup = errors.New(`"All" and "Other" are the menu's tab names; pick another group name`)
+)
+
+// The menu's tab names besides the groups. SetGroup refuses them as group
+// names, so a tab name always means one thing.
+const (
+	TabAll   = "All"   // every bookmark
+	TabOther = "Other" // bookmarks without a group
 )
 
 // DefaultPath returns where pathpin's config lives: $XDG_CONFIG_HOME/pathpin/config.toml
@@ -136,6 +145,7 @@ func validate(c *Config) error {
 	for i := range c.Bookmarks {
 		b := &c.Bookmarks[i]
 		b.Label = strings.TrimSpace(b.Label)
+		b.Group = strings.TrimSpace(b.Group)
 		if b.Label == "" {
 			return fmt.Errorf("bookmark %d: label is empty", i+1)
 		}
@@ -429,6 +439,47 @@ func (c *Config) Find(label string) (Bookmark, bool) {
 		return Bookmark{}, false
 	}
 	return c.Bookmarks[i], true
+}
+
+// Groups lists group names in the order they first appear, each spelled as it
+// first appears. Ungrouped bookmarks aren't a group. The list is derived from
+// the bookmarks each time, so it can't disagree with them.
+func (c *Config) Groups() []string {
+	var names []string
+	for _, b := range c.Bookmarks {
+		if b.Group != "" && groupIndex(names, b.Group) < 0 {
+			names = append(names, b.Group)
+		}
+	}
+	return names
+}
+
+// SetGroup moves the bookmark whose label matches case-insensitively to
+// group, trimmed. A name that matches an existing group case-insensitively
+// takes that group's spelling, so the file stays consistent; "" removes the
+// group. If no label matches, it returns an error wrapping ErrNotFound; a tab
+// name (TabAll, TabOther) as group returns one wrapping ErrReservedGroup.
+func (c *Config) SetGroup(label, group string) error {
+	i := c.index(label)
+	if i < 0 {
+		return fmt.Errorf("%q: %w", label, ErrNotFound)
+	}
+	group = strings.TrimSpace(group)
+	if strings.EqualFold(group, TabAll) || strings.EqualFold(group, TabOther) {
+		return fmt.Errorf("%q: %w", group, ErrReservedGroup)
+	}
+	names := c.Groups()
+	if j := groupIndex(names, group); j >= 0 {
+		group = names[j]
+	}
+	c.Bookmarks[i].Group = group
+	return nil
+}
+
+// groupIndex returns the position of group in names, matching
+// case-insensitively, or -1.
+func groupIndex(names []string, group string) int {
+	return slices.IndexFunc(names, func(n string) bool { return strings.EqualFold(n, group) })
 }
 
 // index returns the position of the first bookmark whose label matches
