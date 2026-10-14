@@ -68,6 +68,8 @@ var (
 	ErrDuplicate = errors.New("bookmark already exists")
 	// ErrNotFound means no bookmark has the given label.
 	ErrNotFound = errors.New("bookmark not found")
+	// ErrGroupNotFound means no bookmark has the given group.
+	ErrGroupNotFound = errors.New("group not found")
 	// ErrReservedGroup means a group name is one of the menu's tab names.
 	ErrReservedGroup = errors.New(`"All" and "Other" are the menu's tab names; pick another group name`)
 )
@@ -502,6 +504,83 @@ func (c *Config) SetGroup(label, group string) error {
 	}
 	c.Bookmarks[i].Group = group
 	return nil
+}
+
+// Rename changes the label of the bookmark whose label matches
+// case-insensitively. newLabel is trimmed and stored as typed. It must not be
+// empty or match another bookmark's label case-insensitively (an error
+// wrapping ErrDuplicate), but a bookmark may change its own label's case. If
+// no label matches, it returns an error wrapping ErrNotFound.
+func (c *Config) Rename(label, newLabel string) error {
+	i := c.index(label)
+	if i < 0 {
+		return fmt.Errorf("%q: %w", label, ErrNotFound)
+	}
+	newLabel = strings.TrimSpace(newLabel)
+	if newLabel == "" {
+		return errors.New("label is empty")
+	}
+	if j := c.index(newLabel); j >= 0 && j != i {
+		return fmt.Errorf("label %q: %w", newLabel, ErrDuplicate)
+	}
+	c.Bookmarks[i].Label = newLabel
+	return nil
+}
+
+// RenameGroup renames the group matching group case-insensitively, for every
+// bookmark in it. newName is trimmed. A case-only change re-cases the group; a
+// name matching another group case-insensitively merges into it, taking that
+// group's spelling. Empty names fail, a tab name (TabAll, TabOther) fails with
+// ErrReservedGroup, and an unknown group with ErrGroupNotFound.
+func (c *Config) RenameGroup(group, newName string) error {
+	names := c.Groups()
+	g := groupIndex(names, group)
+	if g < 0 {
+		return fmt.Errorf("%q: %w", group, ErrGroupNotFound)
+	}
+	newName = strings.TrimSpace(newName)
+	if newName == "" {
+		return errors.New("group name is empty")
+	}
+	if IsTabName(newName) {
+		return fmt.Errorf("%q: %w", newName, ErrReservedGroup)
+	}
+	if j := groupIndex(names, newName); j >= 0 && j != g {
+		newName = names[j] // merge into the other group, in its spelling
+	}
+	for i := range c.Bookmarks {
+		if b := &c.Bookmarks[i]; !b.Ungrouped() && strings.EqualFold(b.Group, names[g]) {
+			b.Group = newName
+		}
+	}
+	return nil
+}
+
+// Move swaps the bookmark whose label matches case-insensitively with its
+// neighbour below (or above): the nearest bookmark that way that within
+// accepts, or any bookmark if within is nil. The neighbour may be far away in
+// the file, as when the menu shows one group. Swapping leaves everything else
+// in its place, so moving within a group never changes the order groups first
+// appear in (the menu's tab order). It reports false, changing nothing, when
+// there's no neighbour that way. If no label matches, it returns an error
+// wrapping ErrNotFound.
+func (c *Config) Move(label string, down bool, within func(Bookmark) bool) (bool, error) {
+	i := c.index(label)
+	if i < 0 {
+		return false, fmt.Errorf("%q: %w", label, ErrNotFound)
+	}
+	step := -1
+	if down {
+		step = 1
+	}
+	for j := i + step; j >= 0 && j < len(c.Bookmarks); j += step {
+		if within != nil && !within(c.Bookmarks[j]) {
+			continue
+		}
+		c.Bookmarks[i], c.Bookmarks[j] = c.Bookmarks[j], c.Bookmarks[i]
+		return true, nil
+	}
+	return false, nil
 }
 
 // groupIndex returns the position of group in names, matching

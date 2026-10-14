@@ -724,3 +724,166 @@ func TestGroupOf(t *testing.T) {
 		t.Errorf("a bookmark from elsewhere: got %q, want its own group", got)
 	}
 }
+
+func labels(bs []Bookmark) []string {
+	var out []string
+	for _, b := range bs {
+		out = append(out, b.Label)
+	}
+	return out
+}
+
+// Rename changes a label, found in any case. The new label is trimmed and
+// stored as typed; it can't be empty or another bookmark's label (any case),
+// but a bookmark can change its own label's case.
+func TestRename(t *testing.T) {
+	cfg := &Config{Bookmarks: []Bookmark{
+		{Label: "NVIM", Path: "/n", Group: "Config"},
+		{Label: "NOTES", Path: "/o"},
+	}}
+	if err := cfg.Rename("nvim", "  Editor "); err != nil {
+		t.Fatal(err)
+	}
+	if b := cfg.Bookmarks[0]; b.Label != "Editor" || b.Path != "/n" || b.Group != "Config" {
+		t.Errorf("after rename: got %+v, want Editor keeping its path and group", b)
+	}
+	if err := cfg.Rename("EDITOR", "editor"); err != nil {
+		t.Errorf("changing its own label's case should work, got %v", err)
+	}
+	if got := cfg.Bookmarks[0].Label; got != "editor" {
+		t.Errorf("re-cased label: got %q", got)
+	}
+
+	if err := cfg.Rename("editor", "notes"); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("another bookmark's label: want ErrDuplicate, got %v", err)
+	}
+	if err := cfg.Rename("editor", "   "); err == nil {
+		t.Error("an empty label should be refused")
+	}
+	if err := cfg.Rename("missing", "X"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown label: want ErrNotFound, got %v", err)
+	}
+	if got := labels(cfg.Bookmarks); !reflect.DeepEqual(got, []string{"editor", "NOTES"}) {
+		t.Errorf("refused renames must change nothing, got %q", got)
+	}
+}
+
+// RenameGroup renames a group (found in any case) for all its bookmarks. A
+// case-only change re-cases it; a name matching another group merges into
+// that group's spelling. Empty names and the tab names are refused.
+func TestRenameGroup(t *testing.T) {
+	newCfg := func() *Config {
+		return &Config{Bookmarks: []Bookmark{
+			{Label: "A", Path: "/a", Group: "config"},
+			{Label: "B", Path: "/b", Group: "School"},
+			{Label: "C", Path: "/c", Group: "Config"},
+			{Label: "D", Path: "/d"},
+		}}
+	}
+	groups := func(c *Config) []string {
+		var out []string
+		for _, b := range c.Bookmarks {
+			out = append(out, b.Group)
+		}
+		return out
+	}
+
+	cfg := newCfg()
+	if err := cfg.RenameGroup("CONFIG", "Config"); err != nil {
+		t.Fatal(err)
+	}
+	if got := groups(cfg); !reflect.DeepEqual(got, []string{"Config", "School", "Config", ""}) {
+		t.Errorf("re-case: got %q", got)
+	}
+
+	cfg = newCfg()
+	if err := cfg.RenameGroup("config", " Dotfiles "); err != nil {
+		t.Fatal(err)
+	}
+	if got := groups(cfg); !reflect.DeepEqual(got, []string{"Dotfiles", "School", "Dotfiles", ""}) {
+		t.Errorf("rename: got %q", got)
+	}
+
+	cfg = newCfg()
+	if err := cfg.RenameGroup("school", "CONFIG"); err != nil {
+		t.Fatal(err)
+	}
+	if got := groups(cfg); !reflect.DeepEqual(got, []string{"config", "config", "Config", ""}) {
+		t.Errorf("merge: got %q, want School's bookmark in config's first spelling", got)
+	}
+
+	cfg = newCfg()
+	for _, bad := range []string{"", "  ", "All", "other"} {
+		if err := cfg.RenameGroup("School", bad); err == nil {
+			t.Errorf("RenameGroup(School, %q) should be refused", bad)
+		}
+	}
+	if err := cfg.RenameGroup("School", "Other"); !errors.Is(err, ErrReservedGroup) {
+		t.Errorf("a tab name: want ErrReservedGroup, got %v", err)
+	}
+	if err := cfg.RenameGroup("Work", "Jobs"); !errors.Is(err, ErrGroupNotFound) {
+		t.Errorf("unknown group: want ErrGroupNotFound, got %v", err)
+	}
+	if got := groups(cfg); !reflect.DeepEqual(got, groups(newCfg())) {
+		t.Errorf("refused renames must change nothing, got %q", got)
+	}
+}
+
+// Move swaps a bookmark with its neighbour above or below among the bookmarks
+// within accepts (nil: all), which may be far away in the file. Everything
+// else keeps its place. At the edge it reports false and changes nothing.
+func TestMove(t *testing.T) {
+	newCfg := func() *Config {
+		return &Config{Bookmarks: []Bookmark{
+			{Label: "A", Path: "/a", Group: "G"},
+			{Label: "B", Path: "/b"},
+			{Label: "C", Path: "/c", Group: "G"},
+			{Label: "D", Path: "/d"},
+		}}
+	}
+	inG := func(b Bookmark) bool { return b.Group == "G" }
+	cases := []struct {
+		label  string
+		down   bool
+		within func(Bookmark) bool
+		moved  bool
+		want   []string
+	}{
+		{"B", false, nil, true, []string{"B", "A", "C", "D"}},
+		{"B", true, nil, true, []string{"A", "C", "B", "D"}},
+		{"A", false, nil, false, []string{"A", "B", "C", "D"}},
+		{"D", true, nil, false, []string{"A", "B", "C", "D"}},
+		{"C", false, inG, true, []string{"C", "B", "A", "D"}}, // B stays put
+		{"A", true, inG, true, []string{"C", "B", "A", "D"}},
+		{"C", true, inG, false, []string{"A", "B", "C", "D"}},
+		{"c", false, inG, true, []string{"C", "B", "A", "D"}}, // label in any case
+	}
+	for _, tc := range cases {
+		cfg := newCfg()
+		moved, err := cfg.Move(tc.label, tc.down, tc.within)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if moved != tc.moved || !reflect.DeepEqual(labels(cfg.Bookmarks), tc.want) {
+			t.Errorf("Move(%s, down=%v): got moved=%v %q, want moved=%v %q",
+				tc.label, tc.down, moved, labels(cfg.Bookmarks), tc.moved, tc.want)
+		}
+	}
+	if _, err := newCfg().Move("missing", true, nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown label: want ErrNotFound, got %v", err)
+	}
+
+	// Moving within a group never changes the order groups first appear in,
+	// so the menu's tabs stay put while you reorder on a group's tab.
+	cfg := &Config{Bookmarks: []Bookmark{
+		{Label: "A", Path: "/a", Group: "Config"},
+		{Label: "X", Path: "/x", Group: "Work"},
+		{Label: "C", Path: "/c", Group: "Config"},
+	}}
+	if _, err := cfg.Move("A", true, func(b Bookmark) bool { return b.Group == "Config" }); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Groups(); !reflect.DeepEqual(got, []string{"Config", "Work"}) {
+		t.Errorf("group order after moving within Config: got %q, want Config before Work", got)
+	}
+}
