@@ -24,11 +24,12 @@ import (
 type mode int
 
 const (
-	modeBrowse  mode = iota // the list is active and keys trigger actions
-	modeConfirm             // a y/N prompt is showing; only y confirms
-	modeInput               // typing a label for a new bookmark
-	modeGroup               // typing a group for the highlighted bookmark (m)
-	modeRename              // typing a new label for the highlighted bookmark (n)
+	modeBrowse    mode = iota // the list is active and keys trigger actions
+	modeConfirm               // a y/N prompt is showing; only y confirms
+	modeInput                 // typing a label for a new bookmark
+	modeGroup                 // typing a group for the highlighted bookmark (m)
+	modeRename                // typing a new label for the highlighted bookmark (n)
+	modeGroupName             // typing a new name for the open group's tab (N)
 )
 
 // confirmAction is what a y/N prompt will do if confirmed.
@@ -37,12 +38,14 @@ type confirmAction int
 const (
 	confirmRemove confirmAction = iota
 	confirmClear
+	confirmMerge
 )
 
 // pending is the action waiting on the prompt.
 type pending struct {
-	action confirmAction
-	label  string // for confirmRemove
+	action     confirmAction
+	label      string // for confirmRemove
+	from, into string // for confirmMerge: the group renamed, and the group it joins
 }
 
 const emptyMessage = "No bookmarks yet — press a to add this directory"
@@ -66,7 +69,7 @@ type Model struct {
 	inputErr string // shown beside the label or group field until the next key
 
 	group   textinput.Model // m's field; suggests existing group names
-	editing string          // label of the bookmark the group or rename field is for
+	editing string          // the bookmark (label) or group the open field is for
 
 	// message is shown on the bottom line until the next key.
 	message    string
@@ -143,7 +146,7 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		k := []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename")}
 		if withTabs {
-			k = append(k, tab)
+			k = append(k, bind("N", "rename group"), tab)
 		}
 		return k
 	}
@@ -176,6 +179,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateField(msg, groupField, Model.move)
 	case modeRename:
 		return m.updateField(msg, labelField, Model.rename)
+	case modeGroupName:
+		return m.updateField(msg, groupField, Model.renameGroup)
 	}
 	return m, nil
 }
@@ -210,6 +215,8 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.startMove()
 		case "n":
 			return m.startRename()
+		case "N":
+			return m.startRenameGroup()
 		case "tab", "shift+tab":
 			names := tabs(m.cfg)
 			if names == nil {
@@ -298,6 +305,11 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 		}
 	case confirmClear:
 		next.Bookmarks = nil
+	case confirmMerge:
+		if err := next.RenameGroup(p.from, p.into); err != nil {
+			m.message, m.messageErr = err.Error(), true
+			return m, nil
+		}
 	}
 	if err := config.Save(m.configPath, next); err != nil {
 		m.message, m.messageErr = "couldn't save: "+err.Error(), true
@@ -322,6 +334,8 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 		m.syncTabs()
 		m.message = fmt.Sprintf("Cleared %d bookmarks. Backup: %s",
 			removed, config.ContractHome(m.configPath+".bak"))
+	case confirmMerge:
+		return m, tea.Batch(m.afterGroupRename(p.into), m.list.NewStatusMessage("Merged "+p.from+" into "+p.into))
 	}
 	return m, nil
 }
@@ -446,6 +460,7 @@ func (m Model) startMove() (tea.Model, tea.Cmd) {
 		return m, nil // empty list
 	}
 	m.mode, m.inputErr, m.editing = modeGroup, "", it.Label
+	m.group.Prompt = "Group: " // N shares this field with its own prompt
 	names := m.cfg.Groups()
 	m.group.SetSuggestions(names)
 	m.group.SetValue(it.Group)
@@ -562,6 +577,78 @@ func (m Model) rename(newLabel string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.reloadRows(old.Path), m.list.NewStatusMessage(status))
 }
 
+// startRenameGroup opens the group field to rename the open group's tab,
+// filled with its name and suggesting the other groups (to merge into).
+func (m Model) startRenameGroup() (tea.Model, tea.Cmd) {
+	names := m.cfg.Groups()
+	i := slices.IndexFunc(names, func(n string) bool { return strings.EqualFold(n, m.tab) })
+	if i < 0 { // All, Other, or no groups
+		m.message = "Open a group's tab to rename it"
+		return m, nil
+	}
+	m.mode, m.inputErr, m.editing = modeGroupName, "", names[i]
+	m.group.Prompt = "Rename group: "
+	m.group.SetSuggestions(slices.Delete(slices.Clone(names), i, i+1))
+	m.group.SetValue(names[i])
+	m.group.CursorEnd()
+	m.group.Width = 12
+	for _, n := range names {
+		m.group.Width = max(m.group.Width, len([]rune(n))+1)
+	}
+	return m, m.group.Focus()
+}
+
+// renameGroup renames the open group to the field's value, for every bookmark
+// in it, like add: change a copy, save it, then swap it in. A name matching
+// another group asks before merging; errors keep the field open.
+func (m Model) renameGroup(newName string) (tea.Model, tea.Cmd) {
+	newName = strings.TrimSpace(newName)
+	if newName == m.editing {
+		// Unchanged: don't save, since every save replaces config.toml.bak.
+		// (A case change isn't equal: it re-cases the group.)
+		m.mode = modeBrowse
+		m.group.Blur()
+		return m, nil
+	}
+	next := m.edit()
+	// RenameGroup checks the name before the merge question, so an empty or
+	// reserved name is reported here rather than after a prompt.
+	if err := next.RenameGroup(m.editing, newName); err != nil {
+		m.inputErr = err.Error()
+		return m, nil
+	}
+	names := m.cfg.Groups()
+	if j := slices.IndexFunc(names, func(n string) bool {
+		return strings.EqualFold(n, newName) && !strings.EqualFold(n, m.editing)
+	}); j >= 0 {
+		m.group.Blur()
+		m.mode, m.pending = modeConfirm, pending{action: confirmMerge, from: m.editing, into: names[j]}
+		return m, nil
+	}
+	if err := config.Save(m.configPath, next); err != nil {
+		m.inputErr = "couldn't save: " + err.Error()
+		return m, nil
+	}
+
+	m.cfg = next
+	m.mode = modeBrowse
+	m.group.Blur()
+	status := "Renamed group " + m.editing + " to " + newName
+	return m, tea.Batch(m.afterGroupRename(newName), m.list.NewStatusMessage(status))
+}
+
+// afterGroupRename follows a group rename or merge: the open tab takes the
+// group's new name (tabs are kept by name), the rows are rebuilt with the
+// cursor on the same bookmark, and the tabs and help are refreshed.
+func (m *Model) afterGroupRename(to string) tea.Cmd {
+	path := ""
+	if it, ok := m.list.SelectedItem().(item); ok {
+		path = it.Path
+	}
+	m.tab = to
+	return tea.Batch(m.reloadRows(path), m.syncTabs())
+}
+
 // choose cds to the highlighted bookmark, unless its folder is gone.
 func (m Model) choose() (tea.Model, tea.Cmd) {
 	it, ok := m.list.SelectedItem().(item)
@@ -621,10 +708,15 @@ func (m Model) bottomLine() string {
 		return m.styles.prompt.Render(fmt.Sprintf("Remove %s? y/N", displayLabel(m.pending.label)))
 	case m.mode == modeConfirm && m.pending.action == confirmClear:
 		return m.styles.prompt.Render(fmt.Sprintf("Delete all %d bookmarks? y/N", len(m.cfg.Bookmarks)))
-	case m.mode == modeInput || m.mode == modeGroup || m.mode == modeRename:
+	case m.mode == modeConfirm && m.pending.action == confirmMerge:
+		return m.styles.prompt.Render(fmt.Sprintf("Merge %s into %s? y/N", m.pending.from, m.pending.into))
+	case m.mode == modeInput || m.mode == modeGroup || m.mode == modeRename || m.mode == modeGroupName:
 		field, hint := m.input, m.styles.muted.Render("enter save · esc cancel")
-		if m.mode == modeGroup {
+		switch m.mode {
+		case modeGroup:
 			field, hint = m.group, m.styles.muted.Render("tab complete · empty = no group")
+		case modeGroupName:
+			field = m.group
 		}
 		if m.inputErr != "" {
 			hint = m.styles.errText.UnsetPadding().Render(m.inputErr)

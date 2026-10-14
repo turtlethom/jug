@@ -58,6 +58,7 @@ In the menu:
 | `c` | clear all bookmarks (asks first) |
 | `m` | move the highlighted bookmark to a group (`tab` completes a name; empty removes its group) |
 | `n` | rename the highlighted bookmark |
+| `N` | rename the open group (renaming it to another group's name merges them, after asking) |
 | `tab` / `shift+tab` | next / previous group (when you have groups) |
 | `q` / `esc` | quit without changing directory |
 | `?` | help |
@@ -97,8 +98,9 @@ group = "Config"
 
 `tab` and `shift+tab` switch tabs, and `/` filters the tab you're on. On All, it matches group names
 too, so `school` finds everything in School.
-Adding a bookmark with `a` while a group's tab is open puts it in that group. Don't name a group
-`All` or `Other`: those are the tab names.
+Adding a bookmark with `a` while a group's tab is open puts it in that group, and `N` renames the
+open group (or merges it into another). Don't name a group `All` or `Other`: those are the tab
+names.
 
 `pathpin ls` lists bookmarks under their groups. Piped, each line is
 `LABEL<tab>/absolute/path<tab>GROUP` (empty group if there's none), so `cut -f1,2` gives label and
