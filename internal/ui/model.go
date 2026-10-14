@@ -62,6 +62,13 @@ type Model struct {
 	// message is shown on the bottom line until the next key.
 	message    string
 	messageErr bool
+
+	// tab is the open tab by name: config.TabAll, a group, or config.TabOther.
+	// A name, not a position, because tabs shift when a group empties.
+	tab string
+	// width and height are the last window size, to resize the list when the
+	// tab bar comes or goes.
+	width, height int
 }
 
 // New builds the menu for cfg. It checks once whether each bookmark's folder
@@ -72,7 +79,7 @@ func New(cfg *config.Config, configPath string) Model {
 	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd}
 	d.Styles = s.item
 
-	l := list.New(itemsFrom(cfg), d, 0, 0)
+	l := list.New(itemsFrom(cfg, config.TabAll), d, 0, 0)
 	l.Title = "pathpin"
 	l.Styles.Title = s.title
 	// One column less than the list's default, so the badge's block lines up
@@ -85,16 +92,7 @@ func New(cfg *config.Config, configPath string) Model {
 	l.FilterInput.Cursor.Style = s.filter
 	l.SetStatusBarItemName("bookmark", "bookmarks")
 	l.StatusMessageLifetime = 3 * time.Second
-	// Add pathpin's own keys to the list's ? help.
-	actionKeys := func() []key.Binding {
-		return []key.Binding{
-			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
-			key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "remove")),
-			key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear")),
-		}
-	}
-	l.AdditionalShortHelpKeys = actionKeys
-	l.AdditionalFullHelpKeys = actionKeys
+	setHelpKeys(&l, tabs(cfg) != nil)
 
 	in := textinput.New()
 	in.Prompt = "Label: "
@@ -104,7 +102,25 @@ func New(cfg *config.Config, configPath string) Model {
 	in.PlaceholderStyle = s.muted
 
 	cwd, _ := os.Getwd() // "" if it fails; a then reports the folder is gone
-	return Model{mode: modeBrowse, list: l, styles: s, cfg: cfg, configPath: configPath, cwd: cwd, input: in}
+	return Model{mode: modeBrowse, list: l, styles: s, cfg: cfg, configPath: configPath, cwd: cwd, input: in, tab: config.TabAll}
+}
+
+// setHelpKeys adds pathpin's own keys to the list's ? help: tab only while
+// there are tabs to switch.
+func setHelpKeys(l *list.Model, withTabs bool) {
+	keys := func() []key.Binding {
+		k := []key.Binding{
+			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+			key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "remove")),
+			key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear")),
+		}
+		if withTabs {
+			k = append(k, key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "group")))
+		}
+		return k
+	}
+	l.AdditionalShortHelpKeys = keys
+	l.AdditionalFullHelpKeys = keys
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -113,8 +129,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Messages every mode handles the same way.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		h, v := m.styles.app.GetFrameSize()
-		m.list.SetSize(msg.Width-h, msg.Height-v-1) // 1 line for the bottom line
+		m.width, m.height = msg.Width, msg.Height
+		m.resize()
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
@@ -160,11 +176,63 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "a":
 			return m.startAdd()
+		case "tab", "shift+tab":
+			names := tabs(m.cfg)
+			if names == nil {
+				return m, nil // no groups, no tabs
+			}
+			step := 1
+			if key.String() == "shift+tab" {
+				step = -1
+			}
+			i := slices.IndexFunc(names, func(n string) bool { return strings.EqualFold(n, m.tab) })
+			return m, m.showTab(names[(i+step+len(names))%len(names)])
 		}
 	}
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+// resize fits the list to the window, leaving room for the bottom line and,
+// while there are groups, the tab bar.
+//
+// It has a pointer receiver so it can change the Model it's called on. Update
+// has a value receiver, so the m it holds is its own copy and calling
+// m.resize() there changes that copy, which Update then returns.
+func (m *Model) resize() {
+	if m.width == 0 {
+		return // no window size yet; Bubble Tea sends one at start
+	}
+	h, v := m.styles.app.GetFrameSize()
+	reserved := 1 // the bottom line
+	if tabs(m.cfg) != nil {
+		reserved++
+	}
+	m.list.SetSize(m.width-h, m.height-v-reserved)
+}
+
+// showTab opens a tab: it clears any filter and shows that tab's bookmarks.
+func (m *Model) showTab(name string) tea.Cmd {
+	m.tab = name
+	m.list.ResetFilter()
+	cmd := m.list.SetItems(itemsFrom(m.cfg, name))
+	m.list.Select(0)
+	return cmd
+}
+
+// syncTabs follows a change to the bookmarks. Groups come and go with them,
+// so it resizes for the tab bar, updates the help, and opens All if the open
+// tab is gone (its last bookmark was removed).
+func (m *Model) syncTabs() tea.Cmd {
+	names := tabs(m.cfg)
+	setHelpKeys(&m.list, names != nil)
+	m.resize()
+	open := slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, m.tab) })
+	if m.tab != config.TabAll && !open {
+		return m.showTab(config.TabAll)
+	}
+	return nil
 }
 
 // updateConfirm handles a y/N prompt: y or Y confirms, any other key cancels.
@@ -212,10 +280,12 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 		if n := len(m.list.VisibleItems()); n > 0 && m.list.Index() >= n {
 			m.list.Select(n - 1)
 		}
-		return m, m.list.NewStatusMessage("Removed " + displayLabel(p.label))
+		return m, tea.Batch(m.list.NewStatusMessage("Removed "+displayLabel(p.label)), m.syncTabs())
 	case confirmClear:
 		m.list.ResetFilter()
 		m.list.SetItems(nil)
+		m.tab = config.TabAll
+		m.syncTabs()
 		m.message = fmt.Sprintf("Cleared %d bookmarks. Backup: %s",
 			removed, config.ContractHome(m.configPath+".bak"))
 	}
@@ -238,12 +308,16 @@ func (m Model) startAdd() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Asking for a label that would then be rejected wastes the user's time.
-	for i, b := range m.cfg.Bookmarks {
+	for _, b := range m.cfg.Bookmarks {
 		if b.Path == filepath.Clean(m.cwd) {
+			var cmd tea.Cmd
+			if !inTab(b, m.tab) {
+				cmd = m.showTab(config.TabAll) // it's on another tab
+			}
 			m.list.ResetFilter()
-			m.list.Select(i)
+			m.list.Select(slices.IndexFunc(m.list.Items(), func(li list.Item) bool { return li.(item).Path == b.Path }))
 			m.message = "This folder is already saved as " + displayLabel(b.Label)
-			return m, nil
+			return m, cmd
 		}
 	}
 	m.mode, m.inputErr = modeInput, ""
@@ -291,6 +365,13 @@ func (m Model) add(label string) (tea.Model, tea.Cmd) {
 		m.inputErr = err.Error()
 		return m, nil
 	}
+	if m.tab != config.TabAll && m.tab != config.TabOther {
+		// On a group's tab, the new bookmark joins that group.
+		if err := next.SetGroup(label, m.tab); err != nil {
+			m.inputErr = err.Error()
+			return m, nil
+		}
+	}
 	if err := config.Save(m.configPath, next); err != nil {
 		m.inputErr = "couldn't save: " + err.Error()
 		return m, nil
@@ -303,9 +384,9 @@ func (m Model) add(label string) (tea.Model, tea.Cmd) {
 	// Clear any filter so the new row is visible, then select it.
 	m.list.ResetFilter()
 	n := len(m.list.Items())
-	insertCmd := m.list.InsertItem(n, item{Bookmark: added, icons: m.cfg.Menu.Icons})
+	insertCmd := m.list.InsertItem(n, item{Bookmark: added, icons: m.cfg.Menu.Icons, matchGroup: m.tab == config.TabAll})
 	m.list.Select(n)
-	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+displayLabel(added.Label)))
+	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+displayLabel(added.Label)), m.syncTabs())
 }
 
 // choose cds to the highlighted bookmark, unless its folder is gone.
@@ -327,11 +408,37 @@ func (m Model) choose() (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	body := m.list.View()
+	// The tab bar goes right under the list's title line (the filter field
+	// while typing). It's drawn here, not in the list's title, because the
+	// list cuts its title to the window width as one line.
+	if bar := m.tabBar(); bar != "" {
+		if title, rest, ok := strings.Cut(body, "\n"); ok {
+			body = title + "\n" + bar + "\n" + rest
+		}
+	}
 	if len(m.list.Items()) == 0 {
 		// Same title bar as the list draws, so the title doesn't jump when it empties.
 		body = m.list.Styles.TitleBar.Render(m.styles.title.Render("pathpin")) + "\n" + m.styles.empty.Render(emptyMessage) + "\n"
 	}
 	return m.styles.app.Render(body + "\n" + m.bottomLine())
+}
+
+// tabBar draws the tabs with the open one in the accent color, or "" when
+// there are no groups. It's cut to the list's width if there are many.
+func (m Model) tabBar() string {
+	names := tabs(m.cfg)
+	if names == nil {
+		return ""
+	}
+	parts := make([]string, len(names))
+	for i, n := range names {
+		style := m.styles.tab
+		if strings.EqualFold(n, m.tab) {
+			style = m.styles.tabOpen
+		}
+		parts[i] = style.Render(n)
+	}
+	return m.styles.tabBar.MaxWidth(m.list.Width()).Render(strings.Join(parts, "  "))
 }
 
 // bottomLine is the prompt in confirm mode, otherwise the last message.
@@ -353,20 +460,68 @@ func (m Model) bottomLine() string {
 	return m.styles.note.Render(m.message)
 }
 
-// itemsFrom makes list rows for cfg, checking whether each folder exists.
-func itemsFrom(cfg *config.Config) []list.Item {
-	items := make([]list.Item, len(cfg.Bookmarks))
-	for i, b := range cfg.Bookmarks {
-		items[i] = item{Bookmark: b, missing: !isDir(b.Path), icons: cfg.Menu.Icons}
+// itemsFrom makes list rows for the bookmarks on a tab, in config order,
+// checking whether each folder exists.
+func itemsFrom(cfg *config.Config, tab string) []list.Item {
+	var items []list.Item
+	for _, b := range cfg.Bookmarks {
+		if inTab(b, tab) {
+			items = append(items, item{
+				Bookmark:   b,
+				missing:    !isDir(b.Path),
+				icons:      cfg.Menu.Icons,
+				matchGroup: tab == config.TabAll, // on a group's tab, every row shares the group
+			})
+		}
 	}
 	return items
+}
+
+// tabs lists the menu's tabs: All, the groups in the order they first appear,
+// then Other if some bookmarks are ungrouped. It's nil when none has a group,
+// so the menu shows no tab bar.
+func tabs(cfg *config.Config) []string {
+	var names []string
+	for _, g := range cfg.Groups() {
+		if !config.IsTabName(g) {
+			names = append(names, g)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	names = append([]string{config.TabAll}, names...)
+	if slices.ContainsFunc(cfg.Bookmarks, ungrouped) {
+		names = append(names, config.TabOther)
+	}
+	return names
+}
+
+// ungrouped reports whether b goes on the Other tab: it has no group, or a
+// hand-edited group named like a tab (the menu refuses those names), which
+// would otherwise make a second All or Other tab.
+func ungrouped(b config.Bookmark) bool {
+	return b.Group == "" || config.IsTabName(b.Group)
+}
+
+// inTab reports whether b shows on a tab: All shows every bookmark, Other the
+// ungrouped ones, and a group's tab its bookmarks (in any case).
+func inTab(b config.Bookmark, tab string) bool {
+	switch tab {
+	case config.TabAll:
+		return true
+	case config.TabOther:
+		return ungrouped(b)
+	}
+	return strings.EqualFold(b.Group, tab)
 }
 
 // item shows a bookmark in the list.
 type item struct {
 	config.Bookmark
-	missing bool // folder didn't exist when last checked
-	icons   bool // [menu] icons: show an icon before the label
+	missing    bool // folder didn't exist when last checked
+	icons      bool // [menu] icons: show an icon before the label
+	matchGroup bool // the filter also matches the group (on the All tab)
 }
 
 func (i item) Title() string {
@@ -380,8 +535,19 @@ func (i item) Description() string { return config.ContractHome(i.Path) }
 
 // FilterValue starts the same way as Title (icon, then the label in
 // uppercase): the list underlines matches by position in Title, counting in
-// FilterValue.
-func (i item) FilterValue() string { return i.icon() + displayLabel(i.Label) }
+// FilterValue. On All, groupSep and the group follow; filterByRune matches the
+// two parts separately.
+func (i item) FilterValue() string {
+	v := i.icon() + displayLabel(i.Label)
+	if i.matchGroup && i.Group != "" {
+		v += groupSep + i.Group
+	}
+	return v
+}
+
+// groupSep separates the label from the group in a FilterValue. It's an
+// invisible control character, so it can't be typed into the filter.
+const groupSep = "\x1f"
 
 // icon is a Nerd Font icon and a space before the label, or "" with icons off.
 // A missing folder gets ✗, which most fonts have.
@@ -402,16 +568,32 @@ func (i item) icon() string {
 // labels as typed, so only use this for text on screen, never for lookups.
 func displayLabel(label string) string { return strings.ToUpper(label) }
 
-// filterByRune is list.DefaultFilter with match positions counted in
-// characters. The fuzzy matcher counts bytes, but the list underlines by
-// character, so anything non-ASCII before a match (an icon, or Ö in a label)
-// shifted the underline.
+// filterByRune is the list's filter. Each target is a row's FilterValue: the
+// label line, then on All groupSep and the group.
+//
+//   - Labels and groups are matched separately, so a query can't take some
+//     letters from the label and the rest from the group. Rows matched by label
+//     come first, then rows matched only by group, which underline nothing.
+//   - Match positions are converted from bytes, which the fuzzy matcher
+//     reports, to characters, which the list underlines; otherwise anything
+//     non-ASCII before a match (an icon, or Ö in a label) shifts the underline.
 func filterByRune(term string, targets []string) []list.Rank {
-	ranks := list.DefaultFilter(term, targets)
+	labels := make([]string, len(targets))
+	groups := make([]string, len(targets))
+	for i, t := range targets {
+		labels[i], groups[i], _ = strings.Cut(t, groupSep)
+	}
+	ranks := list.DefaultFilter(term, labels)
+	byLabel := make(map[int]bool, len(ranks))
 	for _, r := range ranks {
-		target := targets[r.Index]
+		byLabel[r.Index] = true
 		for j, b := range r.MatchedIndexes {
-			r.MatchedIndexes[j] = utf8.RuneCountInString(target[:b])
+			r.MatchedIndexes[j] = utf8.RuneCountInString(labels[r.Index][:b])
+		}
+	}
+	for _, r := range list.DefaultFilter(term, groups) {
+		if !byLabel[r.Index] {
+			ranks = append(ranks, list.Rank{Index: r.Index})
 		}
 	}
 	return ranks

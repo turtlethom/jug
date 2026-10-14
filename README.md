@@ -55,6 +55,7 @@ In the menu:
 | `a` | add the folder you opened pathpin from |
 | `r` | remove the highlighted bookmark (asks first) |
 | `c` | clear all bookmarks (asks first) |
+| `tab` / `shift+tab` | next / previous group (when you have groups) |
 | `q` / `esc` | quit without changing directory |
 | `?` | help |
 
@@ -77,6 +78,23 @@ theme = "catppuccin-mocha"
   step back, so the next change replaces it.
 - pathpin rewrites the file when you add or remove from the menu, so **comments aren't kept**.
 - A file pathpin can't read is reported and left untouched, never reset.
+
+### Groups
+
+Give bookmarks a `group` and the menu shows a tab for each group, plus All and, for bookmarks
+without a group, Other:
+
+```toml
+[[bookmark]]
+label = "NVIM"
+path = "~/.config/nvim"
+group = "Config"
+```
+
+`tab` and `shift+tab` switch tabs, and `/` filters the tab you're on. On All, it matches group names
+too, so `school` finds everything in School.
+Adding a bookmark with `a` while a group's tab is open puts it in that group. Don't name a group
+`All` or `Other`: those are the tab names.
 
 ### Themes
 

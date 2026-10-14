@@ -22,6 +22,9 @@ type Styles struct {
 	item    list.DefaultItemStyles
 	missing list.DefaultItemStyles // rows whose folder is gone
 	pathEnd lipgloss.TerminalColor // a path's last folder: the label color
+	tabBar  lipgloss.Style         // the line of group tabs
+	tab     lipgloss.Style         // a tab
+	tabOpen lipgloss.Style         // the open tab
 }
 
 // NewStyles builds the menu's styles from the user's theme (default:
@@ -82,6 +85,9 @@ func NewStyles(c config.Colors) Styles {
 		item:    item,
 		missing: missing,
 		pathEnd: text,
+		tabBar:  lipgloss.NewStyle().Padding(0, 0, 0, 2), // lines up with the title's text
+		tab:     lipgloss.NewStyle().Foreground(muted),
+		tabOpen: lipgloss.NewStyle().Foreground(primary).Bold(true),
 	}
 }
 

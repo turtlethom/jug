@@ -79,6 +79,13 @@ const (
 	TabOther = "Other" // bookmarks without a group
 )
 
+// IsTabName reports whether name is one of the menu's own tab names, in any
+// case and ignoring surrounding spaces.
+func IsTabName(name string) bool {
+	name = strings.TrimSpace(name)
+	return strings.EqualFold(name, TabAll) || strings.EqualFold(name, TabOther)
+}
+
 // DefaultPath returns where pathpin's config lives: $XDG_CONFIG_HOME/pathpin/config.toml
 // if XDG_CONFIG_HOME is set to an absolute path, otherwise
 // $HOME/.config/pathpin/config.toml. This is the same on Linux and macOS.
@@ -465,7 +472,7 @@ func (c *Config) SetGroup(label, group string) error {
 		return fmt.Errorf("%q: %w", label, ErrNotFound)
 	}
 	group = strings.TrimSpace(group)
-	if strings.EqualFold(group, TabAll) || strings.EqualFold(group, TabOther) {
+	if IsTabName(group) {
 		return fmt.Errorf("%q: %w", group, ErrReservedGroup)
 	}
 	names := c.Groups()
