@@ -770,7 +770,7 @@ func TestRename(t *testing.T) {
 
 // RenameGroup renames a group (found in any case) for all its bookmarks. A
 // case-only change re-cases it; a name matching another group merges into
-// that group's spelling. Empty names and the tab names are refused.
+// that group's spelling; an empty name ungroups it. The tab names are refused.
 func TestRenameGroup(t *testing.T) {
 	newCfg := func() *Config {
 		return &Config{Bookmarks: []Bookmark{
@@ -812,8 +812,20 @@ func TestRenameGroup(t *testing.T) {
 		t.Errorf("merge: got %q, want School's bookmark in config's first spelling", got)
 	}
 
+	// An empty (or blank) name ungroups the group's bookmarks in every
+	// spelling, like SetGroup with "", and leaves the rest alone.
+	for _, empty := range []string{"", "  "} {
+		cfg = newCfg()
+		if err := cfg.RenameGroup("CONFIG", empty); err != nil {
+			t.Fatalf("RenameGroup(CONFIG, %q): %v", empty, err)
+		}
+		if got := groups(cfg); !reflect.DeepEqual(got, []string{"", "School", "", ""}) {
+			t.Errorf("RenameGroup(CONFIG, %q) should ungroup Config only, got %q", empty, got)
+		}
+	}
+
 	cfg = newCfg()
-	for _, bad := range []string{"", "  ", "All", "other"} {
+	for _, bad := range []string{"All", "other"} {
 		if err := cfg.RenameGroup("School", bad); err == nil {
 			t.Errorf("RenameGroup(School, %q) should be refused", bad)
 		}

@@ -56,8 +56,8 @@ func tabBar(t *testing.T, m Model) []string {
 	t.Helper()
 	lines := strings.Split(plain(m.View()), "\n")
 	title := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "PATHPIN") })
-	status := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "bookmark") })
-	if title < 0 || status < 0 || title > status {
+	status := statusLine(lines, title)
+	if title < 0 || status < 0 {
 		t.Fatalf("want the title line above the status line:\n%s", plain(m.View()))
 	}
 	for _, l := range lines[title+1 : status] {
@@ -66,6 +66,21 @@ func tabBar(t *testing.T, m Model) []string {
 		}
 	}
 	return nil
+}
+
+// statusLine is the index of the list's status line ("6 bookmarks"), the
+// first line after title that mentions bookmarks, or -1. It starts after the
+// title because the list shows status messages on the title line, and those
+// may mention bookmarks too.
+func statusLine(lines []string, title int) int {
+	if title < 0 {
+		return -1
+	}
+	i := slices.IndexFunc(lines[title+1:], func(l string) bool { return strings.Contains(l, "bookmark") })
+	if i < 0 {
+		return -1
+	}
+	return title + 1 + i
 }
 
 // activeTab is the one tab drawn in the accent color (as text or block).
@@ -148,8 +163,8 @@ func headLines(t *testing.T, m Model) []string {
 	top := slices.IndexFunc(lines, func(l string) bool {
 		return strings.Contains(l, "PATHPIN") || strings.Contains(l, "Filter:")
 	})
-	status := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "bookmark") })
-	if top < 0 || status < 0 || top > status {
+	status := statusLine(lines, top)
+	if top < 0 || status < 0 {
 		t.Fatalf("want the title line above the status line:\n%s", plain(m.View()))
 	}
 	head := lines[top : status+1]

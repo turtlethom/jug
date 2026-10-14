@@ -41,13 +41,14 @@ const (
 	confirmRemove confirmAction = iota
 	confirmClear
 	confirmMerge
+	confirmUngroup
 )
 
 // pending is the action waiting on the prompt.
 type pending struct {
 	action     confirmAction
 	label      string // for confirmRemove
-	from, into string // for confirmMerge: the group renamed, and the group it joins
+	from, into string // for confirmMerge: the group renamed, and the group it joins; for confirmUngroup: from
 }
 
 const emptyMessage = "No bookmarks yet — press a to add this directory"
@@ -413,7 +414,8 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 		}
 	case confirmClear:
 		next.Bookmarks = nil
-	case confirmMerge:
+	case confirmMerge, confirmUngroup:
+		// For confirmUngroup, into is "", which ungroups.
 		if err := next.RenameGroup(p.from, p.into); err != nil {
 			m.message, m.messageErr = err.Error(), true
 			return m, nil
@@ -425,6 +427,7 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 	}
 
 	removed := len(m.cfg.Bookmarks) - len(next.Bookmarks)
+	ungrouped := groupSize(m.cfg, p.from) // counted before the swap
 	m.cfg = next
 	switch p.action {
 	case confirmRemove:
@@ -444,8 +447,31 @@ func (m Model) apply(p pending) (tea.Model, tea.Cmd) {
 			removed, config.ContractHome(m.configPath+".bak"))
 	case confirmMerge:
 		return m, tea.Batch(m.afterGroupRename(p.into), m.list.NewStatusMessage("Merged "+p.from+" into "+p.into))
+	case confirmUngroup:
+		// The group's tab is gone; its bookmarks are on All (and Other).
+		status := fmt.Sprintf("Ungrouped %s from %s", bookmarks(ungrouped), p.from)
+		return m, tea.Batch(m.afterGroupRename(config.TabAll), m.list.NewStatusMessage(status))
 	}
 	return m, nil
+}
+
+// groupSize is how many bookmarks are in group, in any spelling.
+func groupSize(cfg *config.Config, group string) int {
+	n := 0
+	for _, b := range cfg.Bookmarks {
+		if !b.Ungrouped() && strings.EqualFold(b.Group, group) {
+			n++
+		}
+	}
+	return n
+}
+
+// bookmarks is "1 bookmark" or "n bookmarks".
+func bookmarks(n int) string {
+	if n == 1 {
+		return "1 bookmark"
+	}
+	return fmt.Sprintf("%d bookmarks", n)
 }
 
 // edit returns a copy of the config to change and save: every setting, and its
@@ -573,7 +599,8 @@ func (m Model) startMove() (tea.Model, tea.Cmd) {
 		return m, nil // empty list
 	}
 	m.mode, m.inputErr, m.editing = modeGroup, "", it.Label
-	m.group.Prompt = "Group: " // N shares this field with its own prompt
+	m.group.Prompt = "Group: " // N shares this field with its own prompt and hint
+	m.group.Placeholder = ""
 	names := m.cfg.Groups()
 	m.group.SetSuggestions(names)
 	m.group.SetValue(it.Group)
@@ -701,19 +728,24 @@ func (m Model) startRenameGroup() (tea.Model, tea.Cmd) {
 	}
 	m.mode, m.inputErr, m.editing = modeGroupName, "", names[i]
 	m.group.Prompt = "Rename group: "
+	m.group.Placeholder = ungroupHint // shows once the field is cleared
 	m.group.SetSuggestions(slices.Delete(slices.Clone(names), i, i+1))
 	m.group.SetValue(names[i])
 	m.group.CursorEnd()
-	m.group.Width = 12
+	m.group.Width = len(ungroupHint) + 1 // the field cuts its placeholder to its width
 	for _, n := range names {
 		m.group.Width = max(m.group.Width, len([]rune(n))+1)
 	}
 	return m, m.group.Focus()
 }
 
+// ungroupHint is N's placeholder: clearing the field ungroups the group.
+const ungroupHint = "empty: ungroup all"
+
 // renameGroup renames the open group to the field's value, for every bookmark
 // in it, like add: change a copy, save it, then swap it in. A name matching
-// another group asks before merging; errors keep the field open.
+// another group asks before merging, and an empty name before ungrouping;
+// errors keep the field open.
 func (m Model) renameGroup(newName string) (tea.Model, tea.Cmd) {
 	newName = strings.TrimSpace(newName)
 	if newName == m.editing {
@@ -724,10 +756,15 @@ func (m Model) renameGroup(newName string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	next := m.edit()
-	// RenameGroup checks the name before the merge question, so an empty or
+	// RenameGroup checks the name before the merge or ungroup question, so a
 	// reserved name is reported here rather than after a prompt.
 	if err := next.RenameGroup(m.editing, newName); err != nil {
 		m.inputErr = err.Error()
+		return m, nil
+	}
+	if newName == "" {
+		m.group.Blur()
+		m.mode, m.pending = modeConfirm, pending{action: confirmUngroup, from: m.editing}
 		return m, nil
 	}
 	names := m.cfg.Groups()
@@ -866,6 +903,13 @@ func (m Model) bottomLine() string {
 		return m.styles.prompt.Render(fmt.Sprintf("Delete all %d bookmarks? y/N", len(m.cfg.Bookmarks)))
 	case m.mode == modeConfirm && m.pending.action == confirmMerge:
 		return m.styles.prompt.Render(fmt.Sprintf("Merge %s into %s? y/N", m.pending.from, m.pending.into))
+	case m.mode == modeConfirm && m.pending.action == confirmUngroup:
+		n := groupSize(m.cfg, m.pending.from)
+		all := "all "
+		if n == 1 {
+			all = ""
+		}
+		return m.styles.prompt.Render(fmt.Sprintf("Ungroup %s%s in %s? y/N", all, bookmarks(n), m.pending.from))
 	case m.mode == modeTheme && !m.messageErr:
 		return m.styles.note.Render(m.styles.muted.Render(pickerKeys))
 	case m.mode == modeInput || m.mode == modeGroup || m.mode == modeRename || m.mode == modeGroupName || m.mode == modeHex:

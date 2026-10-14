@@ -530,7 +530,8 @@ func (c *Config) Rename(label, newLabel string) error {
 // RenameGroup renames the group matching group case-insensitively, for every
 // bookmark in it. newName is trimmed. A case-only change re-cases the group; a
 // name matching another group case-insensitively merges into it, taking that
-// group's spelling. Empty names fail, a tab name (TabAll, TabOther) fails with
+// group's spelling. An empty name ungroups every bookmark in the group, as
+// SetGroup does for one. A tab name (TabAll, TabOther) fails with
 // ErrReservedGroup, and an unknown group with ErrGroupNotFound.
 func (c *Config) RenameGroup(group, newName string) error {
 	names := c.Groups()
@@ -538,10 +539,7 @@ func (c *Config) RenameGroup(group, newName string) error {
 	if g < 0 {
 		return fmt.Errorf("%q: %w", group, ErrGroupNotFound)
 	}
-	newName = strings.TrimSpace(newName)
-	if newName == "" {
-		return errors.New("group name is empty")
-	}
+	newName = strings.TrimSpace(newName) // "" ungroups
 	if IsTabName(newName) {
 		return fmt.Errorf("%q: %w", newName, ErrReservedGroup)
 	}
