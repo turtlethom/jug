@@ -43,7 +43,8 @@ pathpin              # open the menu
 pathpin nvim         # jump to the bookmark labeled NVIM (any case)
 pathpin add          # bookmark this folder, labeled with its name in uppercase
 pathpin add work     # ...or with your own label
-pathpin ls           # list bookmarks (tab-separated when piped)
+pathpin add -g Work  # ...in a group (--group; tab completes group names)
+pathpin ls           # list bookmarks by group (tab-separated when piped)
 ```
 
 In the menu:
@@ -82,8 +83,9 @@ theme = "catppuccin-mocha"
 
 ### Groups
 
-Press `m` on a bookmark to put it in a group (or set `group` in the config), and the menu shows a
-tab for each group, plus All and, for bookmarks without a group, Other:
+Press `m` on a bookmark to put it in a group (or use `pathpin add --group`, or set `group` in the
+config), and the menu shows a tab for each group, plus All and, for bookmarks without a group,
+Other:
 
 ```toml
 [[bookmark]]
@@ -96,6 +98,10 @@ group = "Config"
 too, so `school` finds everything in School.
 Adding a bookmark with `a` while a group's tab is open puts it in that group. Don't name a group
 `All` or `Other`: those are the tab names.
+
+`pathpin ls` lists bookmarks under their groups. Piped, each line is
+`LABEL<tab>/absolute/path<tab>GROUP` (empty group if there's none), so `cut -f1,2` gives label and
+path.
 
 ### Themes
 

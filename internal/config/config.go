@@ -449,16 +449,37 @@ func (c *Config) Find(label string) (Bookmark, bool) {
 }
 
 // Groups lists group names in the order they first appear, each spelled as it
-// first appears. Ungrouped bookmarks aren't a group. The list is derived from
+// first appears. Ungrouped bookmarks aren't a group, and neither is a
+// hand-edited group named like a tab (see Ungrouped). The list is derived from
 // the bookmarks each time, so it can't disagree with them.
 func (c *Config) Groups() []string {
 	var names []string
 	for _, b := range c.Bookmarks {
-		if b.Group != "" && groupIndex(names, b.Group) < 0 {
+		if !b.Ungrouped() && groupIndex(names, b.Group) < 0 {
 			names = append(names, b.Group)
 		}
 	}
 	return names
+}
+
+// Ungrouped reports whether b goes under Other: it has no group, or a
+// hand-edited group named like a tab (SetGroup refuses those names), which
+// would otherwise make a second All or Other.
+func (b Bookmark) Ungrouped() bool {
+	return b.Group == "" || IsTabName(b.Group)
+}
+
+// GroupOf is b's group as the menu shows it: the group's first spelling, or ""
+// if b is ungrouped. A bookmark that isn't in c keeps its own group.
+func (c *Config) GroupOf(b Bookmark) string {
+	if b.Ungrouped() {
+		return ""
+	}
+	names := c.Groups()
+	if i := groupIndex(names, b.Group); i >= 0 {
+		return names[i]
+	}
+	return b.Group
 }
 
 // SetGroup moves the bookmark whose label matches case-insensitively to

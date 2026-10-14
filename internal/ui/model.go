@@ -417,7 +417,7 @@ func (m Model) startMove() (tea.Model, tea.Cmd) {
 		return m, nil // empty list
 	}
 	m.mode, m.inputErr, m.moving = modeGroup, "", it.Label
-	names := groupNames(m.cfg)
+	names := m.cfg.Groups()
 	m.group.SetSuggestions(names)
 	m.group.SetValue(it.Group)
 	m.group.CursorEnd()
@@ -500,18 +500,6 @@ func (m Model) move(group string) (tea.Model, tea.Cmd) {
 	}
 	m.list.Select(min(at, len(m.list.Items())-1))
 	return m, tea.Batch(setCmd, m.list.NewStatusMessage(status), m.syncTabs())
-}
-
-// groupNames are the group field's suggestions: the groups, minus any named
-// like a tab (those count as ungrouped).
-func groupNames(cfg *config.Config) []string {
-	var names []string
-	for _, g := range cfg.Groups() {
-		if !config.IsTabName(g) {
-			names = append(names, g)
-		}
-	}
-	return names
 }
 
 // choose cds to the highlighted bookmark, unless its folder is gone.
@@ -609,27 +597,15 @@ func itemsFrom(cfg *config.Config, tab string) []list.Item {
 // then Other if some bookmarks are ungrouped. It's nil when none has a group,
 // so the menu shows no tab bar.
 func tabs(cfg *config.Config) []string {
-	var names []string
-	for _, g := range cfg.Groups() {
-		if !config.IsTabName(g) {
-			names = append(names, g)
-		}
-	}
-	if len(names) == 0 {
+	groups := cfg.Groups()
+	if len(groups) == 0 {
 		return nil
 	}
-	names = append([]string{config.TabAll}, names...)
-	if slices.ContainsFunc(cfg.Bookmarks, ungrouped) {
+	names := append([]string{config.TabAll}, groups...)
+	if slices.ContainsFunc(cfg.Bookmarks, config.Bookmark.Ungrouped) {
 		names = append(names, config.TabOther)
 	}
 	return names
-}
-
-// ungrouped reports whether b goes on the Other tab: it has no group, or a
-// hand-edited group named like a tab (the menu refuses those names), which
-// would otherwise make a second All or Other tab.
-func ungrouped(b config.Bookmark) bool {
-	return b.Group == "" || config.IsTabName(b.Group)
 }
 
 // inTab reports whether b shows on a tab: All shows every bookmark, Other the
@@ -639,7 +615,7 @@ func inTab(b config.Bookmark, tab string) bool {
 	case config.TabAll:
 		return true
 	case config.TabOther:
-		return ungrouped(b)
+		return b.Ungrouped()
 	}
 	return strings.EqualFold(b.Group, tab)
 }

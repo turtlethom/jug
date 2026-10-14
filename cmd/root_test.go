@@ -294,7 +294,8 @@ func TestLsPiped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "NVIM\t" + filepath.Join(e.home, ".config", "nvim") + "\nGONE\t" + filepath.Join(e.home, "old") + "\n"
+	// Always three columns; the group is empty for ungrouped bookmarks.
+	want := "NVIM\t" + filepath.Join(e.home, ".config", "nvim") + "\t\nGONE\t" + filepath.Join(e.home, "old") + "\t\n"
 	if stdout != want {
 		t.Errorf("got %q\nwant %q", stdout, want)
 	}
@@ -480,5 +481,193 @@ func TestInvalidColorWarns(t *testing.T) {
 	// Jumping doesn't use colors, so it doesn't warn.
 	if _, stderr, err := e.run(t, noMenu(t), "notes"); err != nil || stderr != "" {
 		t.Errorf("pathpin notes: want no warning, got err %v, stderr %q", err, stderr)
+	}
+}
+
+// withGroups sets the group of each labeled bookmark straight in the file,
+// bypassing SetGroup, so tests can also write what only a hand edit could.
+func (e rootEnv) withGroups(t *testing.T, labelsAndGroups ...string) {
+	t.Helper()
+	cfg, err := config.Load(e.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < len(labelsAndGroups); i += 2 {
+		for j := range cfg.Bookmarks {
+			if cfg.Bookmarks[j].Label == labelsAndGroups[i] {
+				cfg.Bookmarks[j].Group = labelsAndGroups[i+1]
+			}
+		}
+	}
+	if err := config.Save(e.configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// groupOf is the saved group of the bookmark with this label.
+func (e rootEnv) groupOf(t *testing.T, label string) string {
+	t.Helper()
+	for _, b := range e.saved(t) {
+		if b.Label == label {
+			return b.Group
+		}
+	}
+	t.Fatalf("%s isn't saved", label)
+	return ""
+}
+
+// pathpin add --group (or -g) saves into a group: an existing group in any
+// case keeps its spelling, and the menu's tab names are refused with nothing
+// saved.
+func TestAddGroupFlag(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NOTES", "notes")
+	e.withGroups(t, "NOTES", "School")
+
+	app := filepath.Join(e.home, "projects", "app")
+	if err := os.MkdirAll(app, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(app)
+	_, stderr, err := e.run(t, noMenu(t), "add", "--group", "school")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := e.groupOf(t, "APP"); got != "School" {
+		t.Errorf("--group school: got %q, want School", got)
+	}
+	if !strings.Contains(stderr, "added APP → ~/projects/app (School)") {
+		t.Errorf("want the group in the confirmation, got %q", stderr)
+	}
+
+	web := filepath.Join(e.home, "projects", "web")
+	if err := os.MkdirAll(web, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(web)
+	if _, _, err := e.run(t, noMenu(t), "add", "-g", "Tools", "site"); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.groupOf(t, "site"); got != "Tools" {
+		t.Errorf("-g Tools: got %q, want Tools", got)
+	}
+
+	other := filepath.Join(e.home, "projects", "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(other)
+	_, _, err = e.run(t, noMenu(t), "add", "--group", "Other")
+	if err == nil || !strings.Contains(err.Error(), "tab names") {
+		t.Errorf("--group Other should fail naming the tab names, got %v", err)
+	}
+	if got := len(e.saved(t)); got != 3 {
+		t.Errorf("a refused group must save nothing: want 3 bookmarks, got %d", got)
+	}
+}
+
+// pathpin add --group <TAB> completes group names (not the tab names).
+func TestAddGroupCompletion(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NOTES", "notes", "BASH", "bash", "OLD", "old")
+	e.withGroups(t, "NOTES", "School", "BASH", "Config", "OLD", "other")
+	stdout, _, err := e.run(t, noMenu(t), "__complete", "add", "--group", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []string{"School", "Config"} {
+		if !strings.Contains(stdout, g+"\n") {
+			t.Errorf("want %s offered, got %q", g, stdout)
+		}
+	}
+	if strings.Contains(stdout, "other\n") {
+		t.Errorf("tab names aren't groups to offer, got %q", stdout)
+	}
+	if want := fmt.Sprintf(":%d\n", cobra.ShellCompDirectiveNoFileComp); !strings.HasSuffix(stdout, want) {
+		t.Errorf("want no file completion (%q), got %q", want, stdout)
+	}
+}
+
+// In a terminal, ls lists bookmarks under group headings in tab order (groups
+// as they first appear, then Other), indented, with labels aligned across
+// groups. Hand-edited groups named like a tab count as Other.
+func TestLsTerminalGroups(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "BASH", "bash", "CS310", "cs310", "PATHPIN", "pathpin", "GHOSTTY", "ghostty", "OLD", "!old")
+	e.withGroups(t, "BASH", "Config", "CS310", "School", "GHOSTTY", "config", "OLD", "other")
+	got := formatList(e.saved(t))
+	want := `Config
+  BASH     ~/bash
+  GHOSTTY  ~/ghostty
+
+School
+  CS310    ~/cs310
+
+Other
+  PATHPIN  ~/pathpin
+  OLD      ~/old  (missing)
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// Piped, ls keeps config order and adds each bookmark's group (its first
+// spelling; empty for ungrouped, including hand-edited tab names) as a third
+// column, so cut -f1,2 still works.
+func TestLsPipedGroups(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "BASH", "bash", "PATHPIN", "pathpin", "GHOSTTY", "ghostty", "OLD", "old")
+	e.withGroups(t, "BASH", "Config", "GHOSTTY", "config", "OLD", "ALL")
+	stdout, _, err := e.run(t, noMenu(t), "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	abs := func(rel string) string { return filepath.Join(e.home, rel) }
+	want := "BASH\t" + abs("bash") + "\tConfig\n" +
+		"PATHPIN\t" + abs("pathpin") + "\t\n" +
+		"GHOSTTY\t" + abs("ghostty") + "\tConfig\n" +
+		"OLD\t" + abs("old") + "\t\n"
+	if stdout != want {
+		t.Errorf("got %q\nwant %q", stdout, want)
+	}
+}
+
+// ls --help shows the read example with a literal \t, and no control
+// characters that would print as blank space.
+func TestLsHelpText(t *testing.T) {
+	e := newRootEnv(t)
+	stdout, _, err := e.run(t, noMenu(t), "ls", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range stdout {
+		if r < 0x20 && r != '\n' {
+			t.Fatalf("help has control character %q:\n%s", r, stdout)
+		}
+	}
+	if !strings.Contains(stdout, `while IFS=$'\t' read -r label path group`) {
+		t.Errorf("want the read example:\n%s", stdout)
+	}
+}
+
+// --group completion keeps what was typed and completes the rest, since
+// shells drop candidates whose case doesn't match (groups match in any case).
+func TestAddGroupCompletionKeepsTypedCase(t *testing.T) {
+	e := newRootEnv(t)
+	e.withBookmarks(t, "NOTES", "notes", "BASH", "bash")
+	e.withGroups(t, "NOTES", "School", "BASH", "Config")
+	for typed, want := range map[string]string{"sc": "school", "Sc": "School", "CO": "COnfig"} {
+		stdout, _, err := e.run(t, noMenu(t), "__complete", "add", "--group", typed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(stdout, want+"\n") {
+			t.Errorf("typed %q: want %q offered, got %q", typed, want, stdout)
+		}
+	}
+	stdout, _, _ := e.run(t, noMenu(t), "__complete", "add", "--group", "zz")
+	if strings.Contains(stdout, "School") || strings.Contains(stdout, "Config") {
+		t.Errorf("typed zz: want nothing offered, got %q", stdout)
 	}
 }

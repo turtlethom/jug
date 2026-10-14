@@ -704,3 +704,23 @@ func TestLoadTrimsGroups(t *testing.T) {
 		t.Errorf("group: got %q, want Config", got)
 	}
 }
+
+// GroupOf gives a bookmark's group in its first spelling, "" when ungrouped
+// (including hand-edited tab names), and never panics on a bookmark that
+// isn't in the config.
+func TestGroupOf(t *testing.T) {
+	cfg := &Config{Bookmarks: []Bookmark{
+		{Label: "A", Path: "/a", Group: "Config"},
+		{Label: "B", Path: "/b", Group: "config"},
+		{Label: "C", Path: "/c"},
+		{Label: "D", Path: "/d", Group: "Other"},
+	}}
+	for i, want := range []string{"Config", "Config", "", ""} {
+		if got := cfg.GroupOf(cfg.Bookmarks[i]); got != want {
+			t.Errorf("GroupOf(%s) = %q, want %q", cfg.Bookmarks[i].Label, got, want)
+		}
+	}
+	if got := cfg.GroupOf(Bookmark{Label: "X", Path: "/x", Group: "Work"}); got != "Work" {
+		t.Errorf("a bookmark from elsewhere: got %q, want its own group", got)
+	}
+}
