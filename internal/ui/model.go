@@ -82,10 +82,11 @@ type Model struct {
 	// tab is the open tab by name: config.TabAll, a group, or config.TabOther.
 	// A name, not a position, because tabs shift when a group empties.
 	tab string
-	// themeRow is the theme picker's highlighted row, and draft the colors it
-	// shows; m.cfg.Colors stays as saved until enter there.
+	// themeRow is the appearance picker's highlighted row, and draft the copy
+	// of the config it shows; m.cfg stays as saved until enter there. A value,
+	// not a pointer, so each Model copy has its own.
 	themeRow int
-	draft    config.Colors
+	draft    config.Config
 
 	// gone holds the folders found missing, by path: by the checks Init starts
 	// (see checkFolder), or by enter. Rows read it instead of the disk. A path
@@ -119,19 +120,19 @@ func New(cfg *config.Config, configPath string) Model {
 		mode: modeBrowse, list: l, cfg: cfg, configPath: configPath, cwd: cwd,
 		input: newField("Label: "), group: group, hex: newField(""), tab: config.TabAll, gone: gone,
 	}
-	m.restyle(cfg.Colors)
+	m.restyle(cfg)
 	return m
 }
 
-// restyle draws the menu in these colors, with the saved [menu] selection.
-// New calls it with the saved colors, and the theme picker with its draft on
-// every change.
+// restyle draws the menu in cfg's colors and [menu] selection. New calls it
+// with the saved config, and the appearance picker with its draft on every
+// change.
 //
 // The styles live in several places, not just m.styles: the list keeps its own
 // copies (title, status bar, filter), the delegate draws the rows, and each
 // text field styles its prompt. So all of them are set here, in one place.
-func (m *Model) restyle(c config.Colors) {
-	s := NewStyles(c, m.cfg.Menu.Selection)
+func (m *Model) restyle(cfg *config.Config) {
+	s := NewStyles(cfg.Colors, cfg.Menu.Selection)
 	m.styles = s
 
 	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd}
@@ -176,7 +177,7 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 	}
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		k := []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename"),
-			key.NewBinding(key.WithKeys("J", "K", "shift+down", "shift+up"), key.WithHelp("J/K", "reorder")), bind("t", "theme")}
+			key.NewBinding(key.WithKeys("J", "K", "shift+down", "shift+up"), key.WithHelp("J/K", "reorder")), bind("t", "appearance")}
 		if withTabs {
 			k = append(k, bind("N", "rename group"), tab)
 		}
@@ -358,7 +359,7 @@ func (m *Model) resize() {
 		reserved += 2 // a blank line, then the tab bar
 	}
 	if m.picking() {
-		reserved += 1 + len(colorRows()) // a blank line, then the rows
+		reserved += 1 + len(appearanceRows()) // a blank line, then the rows
 	}
 	m.list.SetSize(m.width-h, m.height-v-reserved)
 }
@@ -667,6 +668,24 @@ func (m *Model) reloadRows(path string) tea.Cmd {
 	}
 	m.list.Select(min(at, len(m.list.Items())-1))
 	return cmd
+}
+
+// setRows rebuilds the open tab's rows from cfg, for a change that's part of
+// every row (icons). The cursor stays on its bookmark, and an applied filter
+// stays applied: SetItems' re-filter, which bubbles would run in the
+// background, is dropped and the rows are re-filtered here instead.
+func (m *Model) setRows(cfg *config.Config) {
+	path := ""
+	if it, ok := m.list.SelectedItem().(item); ok {
+		path = it.Path
+	}
+	m.list.SetItems(itemsFrom(cfg, m.tab, m.gone))
+	if m.list.FilterState() == list.FilterApplied {
+		m.list.SetFilterText(m.list.FilterValue())
+	}
+	if i := slices.IndexFunc(m.list.VisibleItems(), func(li list.Item) bool { return li.(item).Path == path }); i >= 0 {
+		m.list.Select(i)
+	}
 }
 
 // startRename opens the label field for the highlighted bookmark, filled with

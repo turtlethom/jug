@@ -10,41 +10,96 @@ import (
 	"github.com/turtlethom/pathpin/internal/config"
 )
 
-// The theme picker (t) is a panel under the list with a row per [colors] key.
-// It edits m.draft, a copy of the saved colors, and restyles the menu from it
-// on every change, so the menu above is the preview. enter saves the draft;
-// esc restyles from m.cfg.Colors, which the picker never touches.
+// The appearance picker (t) is a panel under the list with a row per setting:
+// the theme, each [colors] key, and [menu] selection and icons. It edits
+// m.draft, a copy of the config taken when it opens, and redraws the menu from
+// it on every change, so the menu above is the preview. enter saves the draft
+// like any change; esc redraws from m.cfg, which the picker never touches.
 
-// colorRow is a row of the picker: a [colors] key and the field it sets.
-type colorRow struct {
-	key  string // as in config.toml
-	hint string // what the color is used for
-	// slot picks the row's field out of a Colors. It's a function for the same
-	// reason as labelField: it must point into the caller's own copy.
-	slot func(*config.Colors) *string
+// pickerRow is a row of the picker: a setting, the values ←→ cycle through,
+// and how to read and set it in a config. get and set are functions for the
+// same reason as labelField: they must work on the caller's own copy.
+type pickerRow struct {
+	key     string          // as in config.toml
+	hint    string          // what the setting changes
+	def     string          // how the default ("") shows: terminal, theme's, block, off
+	values  func() []string // what ←→ cycle through; values()[0] is the default, "" (d)
+	get     func(*config.Config) string
+	set     func(*config.Config, string)
+	color   bool // # types a color
+	rebuild bool // a change rebuilds the list's rows (icons are part of each row)
 }
 
-func colorRows() []colorRow {
-	return []colorRow{
-		{"theme", "", func(c *config.Colors) *string { return &c.Theme }},
-		{"primary", "title, selected row", func(c *config.Colors) *string { return &c.Primary }},
-		{"secondary", "labels", func(c *config.Colors) *string { return &c.Secondary }},
-		{"tertiary", "paths", func(c *config.Colors) *string { return &c.Tertiary }},
-		{"selected_text", "text on primary", func(c *config.Colors) *string { return &c.SelectedText }},
-		{"error", "errors", func(c *config.Colors) *string { return &c.Error }},
+func appearanceRows() []pickerRow {
+	color := func(key, hint string, field func(*config.Colors) *string) pickerRow {
+		return pickerRow{
+			key: key, hint: hint, def: "theme's", values: colorValues, color: true,
+			get: func(c *config.Config) string { return *field(&c.Colors) },
+			set: func(c *config.Config, v string) { *field(&c.Colors) = v },
+		}
+	}
+	return []pickerRow{
+		{
+			key: "theme", def: terminalTheme, values: themeValues,
+			get: func(c *config.Config) string { return c.Colors.Theme },
+			set: func(c *config.Config, v string) { c.Colors.Theme = v },
+		},
+		color("primary", "title, selected row", func(c *config.Colors) *string { return &c.Primary }),
+		color("secondary", "labels", func(c *config.Colors) *string { return &c.Secondary }),
+		color("tertiary", "paths", func(c *config.Colors) *string { return &c.Tertiary }),
+		color("selected_text", "text on primary", func(c *config.Colors) *string { return &c.SelectedText }),
+		color("error", "errors", func(c *config.Colors) *string { return &c.Error }),
+		{
+			key: "selection", hint: "selected row: block or bar", def: selectBlock,
+			values: func() []string { return []string{"", selectBar} },
+			get:    func(c *config.Config) string { return c.Menu.Selection },
+			set:    func(c *config.Config, v string) { c.Menu.Selection = v },
+		},
+		{
+			key: "icons", hint: "needs a Nerd Font", def: "off", rebuild: true,
+			values: func() []string { return []string{"", "on"} },
+			get: func(c *config.Config) string {
+				if c.Menu.Icons {
+					return "on"
+				}
+				return ""
+			},
+			set: func(c *config.Config, v string) { c.Menu.Icons = v == "on" },
+		},
 	}
 }
 
+// themeValues are the themes in ThemeNames order, with terminal as "" (the
+// default, which is how it's saved).
+func themeValues() []string {
+	names := ThemeNames()
+	for i, n := range names {
+		if n == terminalTheme {
+			names[i] = ""
+		}
+	}
+	return names
+}
+
+// colorValues are the theme's color (""), then colorChoices.
+func colorValues() []string {
+	values := []string{""}
+	for _, c := range colorChoices() {
+		values = append(values, c.value)
+	}
+	return values
+}
+
 // pickerKeys is the picker's bottom line.
-const pickerKeys = "←→ change · # hex · d theme's · enter save · esc cancel"
+const pickerKeys = "←→ change · # hex · d reset · enter save · esc cancel"
 
 // picking reports whether the picker shows: its rows, or its hex field.
 func (m Model) picking() bool { return m.mode == modeTheme || m.mode == modeHex }
 
-// startTheme opens the picker on the theme row, with the saved colors as the
-// draft. The list's help hides meanwhile, since its keys don't apply.
+// startTheme opens the picker on the theme row, with a copy of the config as
+// the draft. The list's help hides meanwhile, since its keys don't apply.
 func (m Model) startTheme() (tea.Model, tea.Cmd) {
-	m.mode, m.themeRow, m.draft = modeTheme, 0, m.cfg.Colors
+	m.mode, m.themeRow, m.draft = modeTheme, 0, *m.edit()
 	m.list.SetShowHelp(false)
 	m.resize() // the list shrinks to make room for the rows
 	return m, nil
@@ -65,8 +120,8 @@ func (m Model) updateTheme(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg) // status message timeouts
 		return m, cmd
 	}
-	rows := colorRows()
-	slot := rows[m.themeRow].slot(&m.draft)
+	rows := appearanceRows()
+	row := rows[m.themeRow]
 	switch k.String() {
 	case "up", "k":
 		m.themeRow = (m.themeRow + len(rows) - 1) % len(rows)
@@ -77,50 +132,40 @@ func (m Model) updateTheme(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if k.String() == "left" || k.String() == "h" {
 			step = -1
 		}
-		if m.themeRow == 0 {
-			*slot = cycleTheme(*slot, step)
-		} else {
-			*slot = cycleColor(*slot, step)
-		}
-		m.restyle(m.draft)
+		row.set(&m.draft, cycle(row.values(), row.get(&m.draft), step))
+		m.preview(row)
 	case "d":
-		*slot = "" // the theme's color; on the theme row, terminal
-		m.restyle(m.draft)
+		row.set(&m.draft, row.values()[0]) // the theme's color, terminal, block, off
+		m.preview(row)
 	case "#":
-		if m.themeRow > 0 {
+		if row.color {
 			return m.startHex()
 		}
 	case "enter":
-		return m.saveColors()
+		return m.saveLook()
 	case "esc":
-		m.restyle(m.cfg.Colors)
+		m.restyle(m.cfg)
+		if m.draft.Menu.Icons != m.cfg.Menu.Icons {
+			m.setRows(m.cfg)
+		}
 		return m.closePicker(), nil
 	}
 	return m, nil
 }
 
-// cycleTheme is the theme step places from name in ThemeNames, wrapping.
-// terminal is saved as "" (the default), and an unknown name counts as
-// terminal, which is what the menu draws for it.
-func cycleTheme(name string, step int) string {
-	names := ThemeNames()
-	i := max(0, indexFold(names, name))
-	next := names[(i+step+len(names))%len(names)]
-	if next == terminalTheme {
-		return ""
+// preview redraws the menu from the draft after row changed.
+func (m *Model) preview(row pickerRow) {
+	m.restyle(&m.draft)
+	if row.rebuild {
+		m.setRows(&m.draft)
 	}
-	return next
 }
 
-// cycleColor is the color step places from value, going through theme's ("")
-// and then colorChoices, wrapping. A value that isn't a choice (typed with #,
-// or not a color) counts as theme's.
-func cycleColor(value string, step int) string {
-	values := []string{""}
-	for _, c := range colorChoices() {
-		values = append(values, c.value)
-	}
-	i := max(0, indexFold(values, value))
+// cycle is the value step places from current in values, wrapping. A value
+// that isn't in values (unknown, or a color typed with #) counts as the
+// default, values[0].
+func cycle(values []string, current string, step int) string {
+	i := max(0, indexFold(values, current))
 	return values[(i+step+len(values))%len(values)]
 }
 
@@ -138,8 +183,8 @@ func indexFold(list []string, s string) int {
 // the row's key as the prompt, filled with the row's color (hex or ANSI), or
 // just # when it has none.
 func (m Model) startHex() (tea.Model, tea.Cmd) {
-	row := colorRows()[m.themeRow]
-	value := *row.slot(&m.draft)
+	row := appearanceRows()[m.themeRow]
+	value := row.get(&m.draft)
 	if !validColor(value) {
 		value = "#"
 	}
@@ -159,62 +204,57 @@ func (m Model) setHex(value string) (tea.Model, tea.Cmd) {
 		m.inputErr = "want #RGB, #RRGGBB or 0-255"
 		return m, nil
 	}
-	*colorRows()[m.themeRow].slot(&m.draft) = value
-	m.restyle(m.draft)
+	appearanceRows()[m.themeRow].set(&m.draft, value)
+	m.restyle(&m.draft)
 	m.mode = modeTheme
 	m.hex.Blur()
 	return m, nil
 }
 
-// saveColors saves the draft like the other changes: change a copy, save it,
+// saveLook saves the draft like the other changes: change a copy, save it,
 // then swap it in. A failed save keeps the picker open with the error.
-func (m Model) saveColors() (tea.Model, tea.Cmd) {
-	if sameColors(m.draft, m.cfg.Colors) {
+func (m Model) saveLook() (tea.Model, tea.Cmd) {
+	if sameLook(&m.draft, m.cfg) {
 		// Every save replaces the one backup, so a no-op save would lose it.
-		m.restyle(m.cfg.Colors) // the draft may differ in case only
+		m.restyle(m.cfg) // the draft may differ in case only
 		m = m.closePicker()
-		return m, m.list.NewStatusMessage("Colors unchanged")
+		return m, m.list.NewStatusMessage("Appearance unchanged")
 	}
-	next := m.edit()
-	next.Colors = m.draft
-	if err := config.Save(m.configPath, next); err != nil {
+	next := m.draft
+	if err := config.Save(m.configPath, &next); err != nil {
 		m.message, m.messageErr = "couldn't save: "+err.Error(), true
 		return m, nil
 	}
-	m.cfg = next
+	m.cfg = &next
 	m = m.closePicker()
-	return m, m.list.NewStatusMessage("Colors saved")
+	return m, m.list.NewStatusMessage("Appearance saved")
 }
 
-// sameColors reports whether a and b draw the same: values match in any case,
-// and terminal is the same as no theme.
-func sameColors(a, b config.Colors) bool {
-	for _, row := range colorRows() {
-		x, y := *row.slot(&a), *row.slot(&b)
-		if row.key == "theme" {
-			x, y = noTerminal(x), noTerminal(y)
-		}
-		if !strings.EqualFold(x, y) {
+// sameLook reports whether a and b draw the same: every row's value matches
+// in any case, and a default's name (terminal, block) is the same as "".
+func sameLook(a, b *config.Config) bool {
+	for _, row := range appearanceRows() {
+		if !strings.EqualFold(row.canon(row.get(a)), row.canon(row.get(b))) {
 			return false
 		}
 	}
 	return true
 }
 
-// noTerminal is name, or "" for terminal (the default).
-func noTerminal(name string) string {
-	if strings.EqualFold(name, terminalTheme) {
+// canon is value, or "" when it names the default (terminal, block).
+func (r pickerRow) canon(value string) string {
+	if strings.EqualFold(value, r.def) {
 		return ""
 	}
-	return name
+	return value
 }
 
 // pickerView draws the rows: the key, the value (with arrows on the
 // highlighted row), and a muted hint, in columns.
 func (m Model) pickerView() string {
 	text := m.styles.note.UnsetPadding()
-	lines := make([]string, 0, len(colorRows()))
-	for i, row := range colorRows() {
+	lines := make([]string, 0, len(appearanceRows()))
+	for i, row := range appearanceRows() {
 		marker, key, arrowL, arrowR := "  ", text.Render(fmt.Sprintf("%-14s", row.key)), "  ", "  "
 		if i == m.themeRow {
 			marker = m.styles.picked.Render("› ")
@@ -228,22 +268,25 @@ func (m Model) pickerView() string {
 	return m.styles.picker.MaxWidth(m.list.Width()).Render(strings.Join(lines, "\n"))
 }
 
-// pickerValue draws a row's draft value: a theme name, or a color as a swatch
-// and name · value. Values the menu ignores are marked.
+// pickerValue draws a row's draft value: the default's name, a theme or
+// option, or a color as a swatch and name · value. Values the menu ignores are
+// marked.
 func (m Model) pickerValue(i int) string {
 	text := m.styles.note.UnsetPadding()
-	value := *colorRows()[i].slot(&m.draft)
+	row := appearanceRows()[i]
+	value := row.canon(row.get(&m.draft))
 	switch {
-	case i == 0 && value == "":
-		return text.Render(terminalTheme)
-	case i == 0 && !KnownTheme(value):
-		return text.Render(value + " (unknown)")
-	case i == 0:
-		return text.Render(value)
+	case value == "" && row.color:
+		return m.styles.muted.Render(row.def)
 	case value == "":
-		return m.styles.muted.Render("theme's")
-	case !validColor(value):
+		return text.Render(row.def)
+	case row.color && !validColor(value):
 		return text.Render(value + " (ignored)")
+	case !row.color:
+		if j := indexFold(row.values(), value); j >= 0 {
+			return text.Render(row.values()[j]) // as the menu names it, whatever the case
+		}
+		return text.Render(value + " (unknown)")
 	}
 	swatch := lipgloss.NewStyle().Foreground(lipgloss.Color(value)).Render("██")
 	for _, c := range colorChoices() {

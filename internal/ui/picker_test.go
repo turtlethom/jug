@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -15,13 +16,20 @@ import (
 )
 
 // pickerRows are the picker's rows, top to bottom, named as in the TOML.
-var pickerRows = []string{"theme", "primary", "secondary", "tertiary", "selected_text", "error"}
+var pickerRows = []string{"theme", "primary", "secondary", "tertiary", "selected_text", "error", "selection", "icons"}
 
 // colorsModel builds a menu with two bookmarks and these [colors].
 func colorsModel(t *testing.T, c config.Colors) Model {
 	t.Helper()
+	return lookModel(t, c, config.Menu{})
+}
+
+// lookModel builds a menu with two bookmarks (NVIM, NOTES), these [colors]
+// and this [menu].
+func lookModel(t *testing.T, c config.Colors, menu config.Menu) Model {
+	t.Helper()
 	m := twoBookmarks(t) // creates the folders and the config file
-	cfg := &config.Config{Colors: c, Bookmarks: m.cfg.Bookmarks}
+	cfg := &config.Config{Colors: c, Menu: menu, Bookmarks: m.cfg.Bookmarks}
 	if err := config.Save(m.configPath, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -81,12 +89,12 @@ func saved(m Model) bool {
 	return err == nil
 }
 
-// t opens the picker with a row per [colors] key, the theme row highlighted,
-// and its keys on the bottom line. The help mentions t; the browse help line
-// is hidden while picking.
+// t opens the picker with a row per [colors] key plus selection and icons,
+// the theme row highlighted, and its keys on the bottom line. The help
+// mentions t; the browse help line is hidden while picking.
 func TestThemePickerOpens(t *testing.T) {
 	m := colorsModel(t, config.Colors{})
-	if help, _ := press(m, runes("?")); !helpShows(help, "t", "theme") {
+	if help, _ := press(m, runes("?")); !helpShows(help, "t", "appearance") {
 		t.Errorf("the full help (?) should mention t:\n%s", plain(help.View()))
 	}
 	m = openPicker(t, m)
@@ -103,7 +111,7 @@ func TestThemePickerOpens(t *testing.T) {
 		t.Errorf("an unset color should show theme's: %q", pickerLine(t, m, "primary"))
 	}
 	view := plain(m.View())
-	for _, s := range []string{"enter save", "esc cancel"} {
+	for _, s := range []string{"d reset", "enter save", "esc cancel"} {
 		if !strings.Contains(view, s) {
 			t.Errorf("want %q on the picker's bottom line:\n%s", s, view)
 		}
@@ -151,7 +159,7 @@ func TestThemePickerFitsWindow(t *testing.T) {
 					t.Errorf("%s, %s: a line is %d columns: %q", name, size, w, plain(l))
 				}
 			}
-			pickerLine(t, m, "error") // the last row still shows
+			pickerLine(t, m, "icons") // the last row still shows
 		}
 	}
 }
@@ -329,7 +337,7 @@ func TestThemePickerSaves(t *testing.T) {
 	if m.cfg.Colors != want || colorsOf(m.styles) != colorsOf(NewStyles(want, "")) {
 		t.Error("the menu should keep the saved colors")
 	}
-	if !strings.Contains(plain(m.View()), "Colors saved") {
+	if !strings.Contains(plain(m.View()), "Appearance saved") {
 		t.Errorf("want a status:\n%s", plain(m.View()))
 	}
 }
@@ -341,7 +349,7 @@ func TestThemePickerUnchangedDoesNotSave(t *testing.T) {
 	if m.mode != modeBrowse || saved(m) {
 		t.Errorf("unchanged colors shouldn't save; mode %v, saved %v", m.mode, saved(m))
 	}
-	if !strings.Contains(plain(m.View()), "Colors unchanged") {
+	if !strings.Contains(plain(m.View()), "Appearance unchanged") {
 		t.Errorf("want a status:\n%s", plain(m.View()))
 	}
 	m = enter(left(right(openPicker(t, m))))
@@ -481,5 +489,164 @@ func TestThemePickerFailedSave(t *testing.T) {
 	}
 	if m.cfg.Colors != (config.Colors{}) {
 		t.Errorf("a failed save shouldn't change the colors, got %+v", m.cfg.Colors)
+	}
+}
+
+// hasBlock reports whether the menu draws the selected row as a block (else
+// with just the bar).
+func hasBlock(m Model) bool {
+	_, none := m.styles.item.SelectedTitle.GetBackground().(lipgloss.NoColor)
+	return !none
+}
+
+// The selection row shows block (the default) or bar, with a hint. ←→ cycle
+// the two (wrapping), the menu previews the change, and d resets to block.
+func TestPickerSelectionRow(t *testing.T) {
+	m := openPicker(t, colorsModel(t, config.Colors{}))
+	if line := pickerLine(t, m, "selection"); !strings.Contains(line, "block") || !strings.Contains(line, "selected row: block or bar") {
+		t.Errorf("want block and the hint: %q", line)
+	}
+	m = right(toRow(t, m, "selection"))
+	if line := pickerLine(t, m, "selection"); !strings.Contains(line, "bar") || hasBlock(m) {
+		t.Errorf("→ should show and preview bar: %q, block %v", line, hasBlock(m))
+	}
+	m = right(m)
+	if line := pickerLine(t, m, "selection"); !strings.Contains(line, "block") || !hasBlock(m) {
+		t.Errorf("→ from bar should wrap to block: %q, block %v", line, hasBlock(m))
+	}
+	m = left(m)
+	if line := pickerLine(t, m, "selection"); !strings.Contains(line, "bar") {
+		t.Errorf("← from block should wrap to bar: %q", line)
+	}
+	m, _ = press(m, runes("d"))
+	if line := pickerLine(t, m, "selection"); !strings.Contains(line, "block") || !hasBlock(m) {
+		t.Errorf("d should reset to block: %q, block %v", line, hasBlock(m))
+	}
+	if m, _ = press(m, runes("#")); m.mode != modeTheme {
+		t.Error("# is for color rows only")
+	}
+}
+
+// The icons row shows off (the default) or on, with a hint. ←→ toggle, the
+// rows above show the icons right away, and d turns them off.
+func TestPickerIconsRow(t *testing.T) {
+	m := openPicker(t, colorsModel(t, config.Colors{}))
+	if line := pickerLine(t, m, "icons"); !strings.Contains(line, "off") || !strings.Contains(line, "needs a Nerd Font") {
+		t.Errorf("want off and the hint: %q", line)
+	}
+	m = right(toRow(t, m, "icons"))
+	if line := pickerLine(t, m, "icons"); !strings.Contains(line, "on") || !strings.Contains(m.View(), folderIcon+" NVIM") {
+		t.Errorf("→ should show and preview icons: %q\n%s", line, m.View())
+	}
+	m = right(m)
+	if line := pickerLine(t, m, "icons"); !strings.Contains(line, "off") || strings.Contains(m.View(), folderIcon) {
+		t.Errorf("→ from on should wrap to off: %q\n%s", line, m.View())
+	}
+	m, _ = press(right(m), runes("d"))
+	if line := pickerLine(t, m, "icons"); !strings.Contains(line, "off") || strings.Contains(m.View(), folderIcon) {
+		t.Errorf("d should turn icons off: %q\n%s", line, m.View())
+	}
+	if m, _ = press(m, runes("#")); m.mode != modeTheme {
+		t.Error("# is for color rows only")
+	}
+}
+
+// Toggling icons keeps the cursor on its bookmark, and an applied filter
+// stays applied, showing the same rows (now with icons).
+func TestPickerIconsKeepCursorAndFilter(t *testing.T) {
+	m := selectLabel(t, colorsModel(t, config.Colors{}), "NOTES")
+	m = right(toRow(t, openPicker(t, m), "icons"))
+	if got := selected(m); got != "NOTES" {
+		t.Errorf("want the cursor still on NOTES, got %s", got)
+	}
+
+	m = colorsModel(t, config.Colors{})
+	m.list.SetFilterText("notes")
+	m = right(toRow(t, openPicker(t, m), "icons"))
+	if m.list.FilterState() != list.FilterApplied || !slices.Equal(shown(m), []string{"NOTES"}) || selected(m) != "NOTES" {
+		t.Errorf("want the filter kept with NOTES selected, got state %v, rows %q, selected %s",
+			m.list.FilterState(), shown(m), selected(m))
+	}
+	if !strings.Contains(m.View(), folderIcon+" NOTES") {
+		t.Errorf("want the filtered row with its icon:\n%s", m.View())
+	}
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.list.FilterState() != list.FilterApplied || !slices.Equal(shown(m), []string{"NOTES"}) || strings.Contains(m.View(), folderIcon) {
+		t.Errorf("esc should drop the icons and keep the filter, got state %v, rows %q:\n%s",
+			m.list.FilterState(), shown(m), m.View())
+	}
+}
+
+// enter saves selection and icons with the colors, keeping the bookmarks; the
+// menu keeps them. Going back to block and off saves the defaults, which the
+// file leaves out.
+func TestPickerSavesMenuOptions(t *testing.T) {
+	m := openPicker(t, colorsModel(t, config.Colors{Theme: "nord"}))
+	m = right(toRow(t, m, "selection"))
+	m = enter(right(toRow(t, m, "icons")))
+	if m.mode != modeBrowse {
+		t.Fatalf("enter should close the picker:\n%s", plain(m.View()))
+	}
+	cfg, err := config.Load(m.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (config.Menu{Icons: true, Selection: "bar"}); cfg.Menu != want || m.cfg.Menu != want {
+		t.Errorf("want %+v saved and kept, got file %+v, menu %+v", want, cfg.Menu, m.cfg.Menu)
+	}
+	if cfg.Colors.Theme != "nord" || len(cfg.Bookmarks) != 2 {
+		t.Errorf("saving should keep the colors and bookmarks, got %+v, %d bookmarks", cfg.Colors, len(cfg.Bookmarks))
+	}
+	if hasBlock(m) || !strings.Contains(m.View(), folderIcon+" NVIM") {
+		t.Errorf("after saving, the menu should keep bar and icons:\n%s", m.View())
+	}
+	if !strings.Contains(plain(m.View()), "Appearance saved") {
+		t.Errorf("want a status:\n%s", plain(m.View()))
+	}
+
+	m = openPicker(t, m)
+	m = left(toRow(t, m, "selection"))
+	m = enter(left(toRow(t, m, "icons")))
+	data, err := os.ReadFile(m.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.cfg.Menu != (config.Menu{}) || strings.Contains(string(data), "selection") || strings.Contains(string(data), "icons") {
+		t.Errorf("block and off are the defaults and shouldn't be written, got %+v:\n%s", m.cfg.Menu, data)
+	}
+}
+
+// esc puts back the saved selection and icons, and saves nothing.
+func TestPickerEscRestoresMenuOptions(t *testing.T) {
+	m := openPicker(t, colorsModel(t, config.Colors{}))
+	m = right(toRow(t, m, "selection"))
+	m = right(toRow(t, m, "icons"))
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != modeBrowse || saved(m) {
+		t.Errorf("esc should close the picker without saving; mode %v, saved %v", m.mode, saved(m))
+	}
+	if !hasBlock(m) || strings.Contains(m.View(), folderIcon) || m.cfg.Menu != (config.Menu{}) {
+		t.Errorf("esc should restore block and no icons:\n%s", m.View())
+	}
+}
+
+// A hand-edited selection the menu doesn't know shows as unknown and steps
+// from block; one in another case counts as unchanged.
+func TestPickerHandEditedSelection(t *testing.T) {
+	m := openPicker(t, lookModel(t, config.Colors{}, config.Menu{Selection: "bars"}))
+	if line := pickerLine(t, m, "selection"); !strings.Contains(line, "bars (unknown)") {
+		t.Errorf("want the unknown value marked: %q", line)
+	}
+	if line := pickerLine(t, right(toRow(t, m, "selection")), "selection"); !strings.Contains(line, "bar") || strings.Contains(line, "unknown") {
+		t.Errorf("→ from an unknown value should step from block to bar: %q", line)
+	}
+
+	m = openPicker(t, lookModel(t, config.Colors{}, config.Menu{Selection: "Bar"}))
+	if line := pickerLine(t, m, "selection"); !strings.Contains(line, "bar") || strings.Contains(line, "unknown") {
+		t.Errorf("Bar should show as bar: %q", line)
+	}
+	m = enter(m)
+	if saved(m) || !strings.Contains(plain(m.View()), "Appearance unchanged") {
+		t.Errorf("Bar is unchanged and shouldn't save; saved %v:\n%s", saved(m), plain(m.View()))
 	}
 }
