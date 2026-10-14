@@ -48,8 +48,8 @@ func enter(m Model) Model {
 // (empty if it has none). The help mentions m.
 func TestMoveOpensGroupField(t *testing.T) {
 	m := selectLabel(t, groupModel(t), "CS310")
-	if !strings.Contains(plain(rawLine(t, m.View(), "quit")), "m move") {
-		t.Errorf("the help line should mention m:\n%s", plain(m.View()))
+	if help, _ := press(m, runes("?")); !helpShows(help, "m", "move") {
+		t.Errorf("the full help (?) should mention m:\n%s", plain(help.View()))
 	}
 	m, _ = press(m, runes("m"))
 	if m.mode == modeBrowse || !strings.Contains(plain(m.View()), "Group: School") {

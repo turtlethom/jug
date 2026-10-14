@@ -57,6 +57,7 @@ In the menu:
 | `r` | remove the highlighted bookmark (asks first) |
 | `c` | clear all bookmarks (asks first) |
 | `m` | move the highlighted bookmark to a group (`tab` completes a name; empty removes its group) |
+| `n` | rename the highlighted bookmark |
 | `tab` / `shift+tab` | next / previous group (when you have groups) |
 | `q` / `esc` | quit without changing directory |
 | `?` | help |
