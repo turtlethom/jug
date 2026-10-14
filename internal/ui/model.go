@@ -353,7 +353,7 @@ func (m *Model) resize() {
 	h, v := m.styles.app.GetFrameSize()
 	reserved := 1 // the bottom line
 	if tabs(m.cfg) != nil {
-		reserved++
+		reserved += 2 // a blank line, then the tab bar
 	}
 	if m.picking() {
 		reserved += 1 + len(colorRows()) // a blank line, then the rows
@@ -818,12 +818,13 @@ func (m Model) choose() (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	body := m.list.View()
-	// The tab bar goes right under the list's title line (the filter field
-	// while typing). It's drawn here, not in the list's title, because the
+	// The tab bar goes under the list's title line (the filter field while
+	// typing), after a blank line; the list's title padding gives the blank
+	// line below it. It's drawn here, not in the list's title, because the
 	// list cuts its title to the window width as one line.
 	if bar := m.tabBar(); bar != "" {
 		if title, rest, ok := strings.Cut(body, "\n"); ok {
-			body = title + "\n" + bar + "\n" + rest
+			body = title + "\n\n" + bar + "\n" + rest
 		}
 	}
 	if len(m.list.Items()) == 0 {

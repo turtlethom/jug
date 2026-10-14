@@ -139,6 +139,60 @@ func TestTabBar(t *testing.T) {
 	}
 }
 
+// headLines is the view's lines from the title (or the filter field, which
+// takes its place while typing) down to the status line, trimmed. Blank lines
+// are "".
+func headLines(t *testing.T, m Model) []string {
+	t.Helper()
+	lines := strings.Split(plain(m.View()), "\n")
+	top := slices.IndexFunc(lines, func(l string) bool {
+		return strings.Contains(l, "PATHPIN") || strings.Contains(l, "Filter:")
+	})
+	status := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "bookmark") })
+	if top < 0 || status < 0 || top > status {
+		t.Fatalf("want the title line above the status line:\n%s", plain(m.View()))
+	}
+	head := lines[top : status+1]
+	for i, l := range head {
+		head[i] = strings.TrimSpace(l)
+	}
+	return head
+}
+
+// A blank line separates the title from the tab bar, and the tab bar from the
+// status line. While typing a filter, the filter field takes the title's place
+// and the spacing stays. Without groups, the head is as it was.
+func TestTabBarSpacing(t *testing.T) {
+	m := groupModel(t)
+	filtering, _ := press(m, runes("/"))
+	filtering, _ = press(filtering, runes("b"))
+	for name, m := range map[string]Model{"browsing": m, "filtering": filtering} {
+		got := headLines(t, m)
+		if len(got) != 5 || got[1] != "" || !strings.HasPrefix(got[2], config.TabAll+" ") || got[3] != "" {
+			t.Errorf("%s: want title, blank, tab bar, blank, status; got %q", name, got)
+		}
+	}
+	if got := headLines(t, twoBookmarks(t)); len(got) != 3 || got[1] != "" {
+		t.Errorf("no groups: want title, blank, status; got %q", got)
+	}
+}
+
+// With tabs, the menu still fits the window: no more lines than its height,
+// with the help line at the bottom, while browsing and while filtering.
+func TestTabsFitWindow(t *testing.T) {
+	m := groupModel(t).sized(80, 24)
+	filtering, _ := press(m, runes("/"))
+	for name, m := range map[string]Model{"browsing": m, "filtering": filtering, "resized": m.sized(80, 20)} {
+		lines := strings.Split(m.View(), "\n")
+		if len(lines) > m.height {
+			t.Errorf("%s: %d lines, want at most %d:\n%s", name, len(lines), m.height, plain(m.View()))
+		}
+		if name != "filtering" && !strings.Contains(plain(m.View()), "q quit") {
+			t.Errorf("%s: the help line should show:\n%s", name, plain(m.View()))
+		}
+	}
+}
+
 // tab and shift+tab move through the tabs, wrapping around. Each tab shows
 // its bookmarks in config order, and the status line counts them.
 func TestTabSwitching(t *testing.T) {
