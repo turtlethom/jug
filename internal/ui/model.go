@@ -144,7 +144,8 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 		return k
 	}
 	l.AdditionalFullHelpKeys = func() []key.Binding {
-		k := []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename")}
+		k := []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename"),
+			key.NewBinding(key.WithKeys("J", "K", "shift+down", "shift+up"), key.WithHelp("J/K", "reorder"))}
 		if withTabs {
 			k = append(k, bind("N", "rename group"), tab)
 		}
@@ -217,6 +218,8 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.startRename()
 		case "N":
 			return m.startRenameGroup()
+		case "J", "K", "shift+down", "shift+up":
+			return m.reorder(key.String() == "J" || key.String() == "shift+down")
 		case "tab", "shift+tab":
 			names := tabs(m.cfg)
 			if names == nil {
@@ -647,6 +650,44 @@ func (m *Model) afterGroupRename(to string) tea.Cmd {
 	}
 	m.tab = to
 	return tea.Batch(m.reloadRows(path), m.syncTabs())
+}
+
+// reorder moves the highlighted bookmark one place down (or up) on the open
+// tab and saves, like every change. Nothing happens at the tab's edge; with a
+// filter applied, it says to clear the filter first, since neighbours in a
+// filtered list aren't neighbours in the file.
+func (m Model) reorder(down bool) (tea.Model, tea.Cmd) {
+	it, ok := m.list.SelectedItem().(item)
+	if !ok {
+		return m, nil // empty list
+	}
+	if m.list.FilterState() == list.FilterApplied {
+		m.message = "Clear the filter to reorder"
+		return m, nil
+	}
+	// within is a closure over the open tab, so config.Move can ask whether a
+	// bookmark is on it without knowing about tabs. nil (on All) means any.
+	var within func(config.Bookmark) bool
+	if m.tab != config.TabAll {
+		tab := m.tab
+		within = func(b config.Bookmark) bool { return inTab(b, tab) }
+	}
+	next := m.edit()
+	moved, err := next.Move(it.Label, down, within)
+	if err != nil {
+		m.message, m.messageErr = err.Error(), true
+		return m, nil
+	}
+	if !moved {
+		return m, nil // at the edge: nothing to save
+	}
+	if err := config.Save(m.configPath, next); err != nil {
+		m.message, m.messageErr = "couldn't save: "+err.Error(), true
+		return m, nil
+	}
+	m.cfg = next
+	// Reordering on All can change which group appears first, so the tabs too.
+	return m, tea.Batch(m.reloadRows(it.Path), m.syncTabs())
 }
 
 // choose cds to the highlighted bookmark, unless its folder is gone.

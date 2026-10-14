@@ -59,6 +59,7 @@ In the menu:
 | `m` | move the highlighted bookmark to a group (`tab` completes a name; empty removes its group) |
 | `n` | rename the highlighted bookmark |
 | `N` | rename the open group (renaming it to another group's name merges them, after asking) |
+| `J` / `K` (or `shift+↓` / `shift+↑`) | move the highlighted bookmark down / up |
 | `tab` / `shift+tab` | next / previous group (when you have groups) |
 | `q` / `esc` | quit without changing directory |
 | `?` | help |
