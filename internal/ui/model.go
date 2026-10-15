@@ -96,6 +96,9 @@ type Model struct {
 	// width and height are the last window size, to resize the list when the
 	// tab bar comes or goes.
 	width, height int
+
+	// act is what the action keys do outside the menu (see actions).
+	act actions
 }
 
 // New builds the menu for cfg. It doesn't touch the disk: Init checks the
@@ -122,6 +125,7 @@ func New(cfg *config.Config, configPath string) Model {
 	m := Model{
 		mode: modeBrowse, list: l, cfg: cfg, configPath: configPath, cwd: cwd,
 		input: newField("Label: "), group: group, hex: newField(""), tab: config.TabAll, gone: gone,
+		act: systemActions(),
 	}
 	m.restyle(cfg)
 	return m
@@ -140,6 +144,7 @@ func (m *Model) restyle(cfg *config.Config) {
 
 	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd, tag: s.muted}
 	d.Styles = s.item
+	d.FullHelpFunc = func() [][]key.Binding { return [][]key.Binding{editKeys()} }
 	m.list.SetDelegate(d)
 	m.list.Styles.Title = s.title
 	m.list.Styles.StatusBar = s.status
@@ -174,13 +179,23 @@ func newField(prompt string) textinput.Model {
 	return in
 }
 
-// setHelpKeys adds pathpin's own keys to the list's help. The short help line
+// bind is a key for the help: its key and what it does.
+func bind(k, desc string) key.Binding {
+	return key.NewBinding(key.WithKeys(k), key.WithHelp(k, desc))
+}
+
+// editKeys are the keys that change bookmarks. In ? help they're a column of
+// their own, through the delegate (see restyle), so the full help stays short
+// enough for an 80x24 terminal.
+func editKeys() []key.Binding {
+	return []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename")}
+}
+
+// setHelpKeys adds pathpin's other keys to the list's help. The short help line
 // shows only a and r (and tab while there are tabs), so it fits an 80-column
-// terminal with q quit and ? more still showing; ? lists every key.
+// terminal with q quit and ? more still showing; ? lists every key, the rest
+// under the filter keys, with the group keys last since they come and go.
 func setHelpKeys(l *list.Model, withTabs bool) {
-	bind := func(k, desc string) key.Binding {
-		return key.NewBinding(key.WithKeys(k), key.WithHelp(k, desc))
-	}
 	tab := key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "group"))
 	l.AdditionalShortHelpKeys = func() []key.Binding {
 		k := []key.Binding{bind("a", "add"), bind("r", "remove")}
@@ -190,8 +205,8 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 		return k
 	}
 	l.AdditionalFullHelpKeys = func() []key.Binding {
-		k := []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename"),
-			key.NewBinding(key.WithKeys("J", "K", "shift+down", "shift+up"), key.WithHelp("J/K", "reorder")), bind("t", "appearance")}
+		k := []key.Binding{key.NewBinding(key.WithKeys("J", "K", "shift+down", "shift+up"), key.WithHelp("J/K", "reorder")),
+			bind("t", "appearance"), bind("y", "copy path"), bind("o", "open")}
 		if withTabs {
 			k = append(k, bind("N", "rename group"), tab)
 		}
@@ -266,6 +281,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
 		return m, nil
+	case copiedMsg:
+		return m.actionDone("Copied", msg.path, msg.err)
+	case openedMsg:
+		return m.actionDone("Opened", msg.path, msg.err)
 	case folderGoneMsg:
 		if m.list.FilterState() == list.Filtering {
 			// The list re-filters in the background on every key while a
@@ -337,6 +356,10 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.startRenameGroup()
 		case "t":
 			return m.startTheme()
+		case "y":
+			return m.copyPath()
+		case "o":
+			return m.openFolder()
 		case "J", "K", "shift+down", "shift+up":
 			return m.reorder(key.String() == "J" || key.String() == "shift+down")
 		case "tab", "shift+tab":
@@ -894,13 +917,21 @@ func (m Model) choose() (tea.Model, tea.Cmd) {
 		return m, nil // empty list
 	}
 	// Check again: the folder may have come back (or vanished) since the menu opened.
-	if !isDir(it.Path) {
-		m.markGone(it.Path)
-		cmd := m.list.NewStatusMessage(config.ContractHome(it.Path) + " no longer exists")
+	if cmd := m.refuseGone(it.Path); cmd != nil {
 		return m, cmd
 	}
 	m.chosen = it.Path
 	return m, tea.Quit
+}
+
+// refuseGone checks the folder on disk for enter and the action keys. If it's
+// gone, it dims the row and returns the status saying so; else nil.
+func (m *Model) refuseGone(path string) tea.Cmd {
+	if isDir(path) {
+		return nil
+	}
+	m.markGone(path)
+	return m.list.NewStatusMessage(config.ContractHome(path) + " no longer exists")
 }
 
 func (m Model) View() string {
