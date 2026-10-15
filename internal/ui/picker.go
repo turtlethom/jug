@@ -90,8 +90,10 @@ func colorValues() []string {
 	return values
 }
 
-// pickerKeys are the picker's keys, on the bottom line.
-var pickerKeys = []hint{{"←→", "change"}, {"#", "hex"}, {"d", "reset"}, {"enter", "save"}, {"esc", "cancel"}}
+// pickerKeys are the picker's keys, on the bottom line, with the letter keys
+// next to the arrows.
+var pickerKeys = []hint{{"↑↓/jk", "row"}, {"←→/hl", "change"}, {"#", "hex"},
+	{"d", "reset"}, {"enter", "save"}, {"esc", "cancel"}}
 
 // picking reports whether the picker shows: its rows, or its hex field.
 func (m Model) picking() bool { return m.mode == modeTheme || m.mode == modeHex }

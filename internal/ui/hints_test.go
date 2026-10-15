@@ -93,6 +93,45 @@ func TestFullHelpAfterTabSwitch(t *testing.T) {
 	}
 }
 
+// pickerKeysLine is the picker's bottom line, every key in it.
+const pickerKeysLine = "↑↓/jk row • ←→/hl change • # hex • d reset • enter save • esc cancel"
+
+// The picker's bottom line names every key, with the letter keys next to the
+// arrows (h and l were missing). In a narrow window it's cut like the help
+// line: whole keys, then ….
+func TestPickerKeysLine(t *testing.T) {
+	for _, w := range []int{80, 40} {
+		m := openPicker(t, colorsModel(t, config.Colors{}).sized(w, 24))
+		line := strings.TrimSpace(plain(rawLine(t, m.View(), "↑↓/jk")))
+		if w == 80 {
+			if line != pickerKeysLine {
+				t.Errorf("80 columns: want %q, got %q", pickerKeysLine, line)
+			}
+			continue
+		}
+		if got := lipgloss.Width(rawLine(t, m.View(), "↑↓/jk")); got > w {
+			t.Errorf("%d columns: the keys line is %d wide", w, got)
+		}
+		shown, cut := strings.CutSuffix(line, " …")
+		if !cut || !strings.HasPrefix(pickerKeysLine, shown) || !strings.HasPrefix(pickerKeysLine[len(shown):], " • ") {
+			t.Errorf("%d columns: want whole keys and then …, got %q", w, line)
+		}
+	}
+}
+
+// ? says that shift+tab goes back a tab. The short help line has no room for
+// it and keeps "tab group".
+func TestTabKeysInHelp(t *testing.T) {
+	m := groupModel(t)
+	if line := helpLine(t, m); !strings.Contains(line, "tab group") || strings.Contains(line, "⇧") {
+		t.Errorf("short help: want tab group as before, got %q", line)
+	}
+	m, _ = press(m, runes("?"))
+	if !helpShows(m, "tab/⇧tab", "group") {
+		t.Errorf("? should list tab/⇧tab group:\n%s", plain(m.View()))
+	}
+}
+
 // checkHint checks one "key desc" hint on a rendered line: the key in the
 // accent, the description muted.
 func checkHint(t *testing.T, name, line, key, desc string) {
@@ -129,7 +168,7 @@ func TestHintColors(t *testing.T) {
 
 	picker, _ := press(m, runes("t"))
 	line := rawLine(t, picker.View(), "reset")
-	if want := "←→ change • # hex • d reset • enter save • esc cancel"; !strings.Contains(plain(line), want) {
+	if want := pickerKeysLine; !strings.Contains(plain(line), want) {
 		t.Errorf("picker: want %q, got %q", want, plain(line))
 	}
 	checkHint(t, "picker", line, "d", "reset")

@@ -512,7 +512,7 @@ func TestHelpFitsWidth(t *testing.T) {
 		}
 	}
 	help, _ := press(groupModel(t), runes("?"))
-	for _, k := range [][2]string{{"a", "add"}, {"r", "remove"}, {"c", "clear"}, {"m", "move"}, {"n", "rename"}, {"tab", "group"}} {
+	for _, k := range [][2]string{{"a", "add"}, {"r", "remove"}, {"c", "clear"}, {"m", "move"}, {"n", "rename"}, {"tab/⇧tab", "group"}} {
 		if !helpShows(help, k[0], k[1]) {
 			t.Errorf("the full help should list %s %s:\n%s", k[0], k[1], plain(help.View()))
 		}

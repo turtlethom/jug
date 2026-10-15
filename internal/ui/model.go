@@ -196,7 +196,10 @@ func editKeys() []key.Binding {
 // terminal with q quit and ? more still showing; ? lists every key, the rest
 // under the filter keys, with the group keys last since they come and go.
 func setHelpKeys(l *list.Model, withTabs bool) {
+	// The same keys, labeled for each help: the short line has no room for
+	// shift+tab, ? does. Only the help reads these; updateBrowse handles tab.
 	tab := key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "group"))
+	tabAll := key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab/⇧tab", "group"))
 	l.AdditionalShortHelpKeys = func() []key.Binding {
 		k := []key.Binding{bind("a", "add"), bind("r", "remove")}
 		if withTabs {
@@ -208,7 +211,7 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 		k := []key.Binding{key.NewBinding(key.WithKeys("J", "K", "shift+down", "shift+up"), key.WithHelp("J/K", "reorder")),
 			bind("t", "appearance"), bind("y", "copy path"), bind("o", "open")}
 		if withTabs {
-			k = append(k, bind("N", "rename group"), tab)
+			k = append(k, bind("N", "rename group"), tabAll)
 		}
 		return k
 	}
@@ -1007,7 +1010,10 @@ func (m Model) bottomLine() string {
 		}
 		return m.styles.prompt.Render(fmt.Sprintf("Ungroup %s%s in %s? y/N", all, bookmarks(n), m.pending.from))
 	case m.mode == modeTheme && !m.messageErr:
-		return m.styles.note.Render(m.hints(0, pickerKeys...))
+		// Cut to the room the bottom line has: the window, but for the frame's
+		// left padding and the line's indent.
+		width := m.width - m.styles.app.GetHorizontalFrameSize() - m.styles.note.GetHorizontalFrameSize()
+		return m.styles.note.Render(m.hints(width, pickerKeys...))
 	case m.mode == modeInput || m.mode == modeGroup || m.mode == modeRename || m.mode == modeGroupName || m.mode == modeHex:
 		field, keys := m.input, m.hints(0, hint{"enter", "save"}, hint{"esc", "cancel"})
 		switch m.mode {
