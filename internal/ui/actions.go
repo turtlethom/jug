@@ -14,22 +14,29 @@ import (
 )
 
 // actions are what the action keys do outside the menu. New fills in the real
-// ones; tests replace them. They only ever run inside a tea.Cmd, never in
-// Update, so a slow clipboard tool or file manager can't freeze the menu.
+// ones; tests replace them. copy and open only ever run inside a tea.Cmd, never
+// in Update, so a slow clipboard tool or file manager can't freeze the menu.
+// editor only builds the editor's command; Bubble Tea runs it (ExecProcess).
 type actions struct {
-	copy func(text string) error // y: put text on the clipboard
-	open func(dir string) error  // o: show dir in the file manager
+	copy   func(text string) error    // y: put text on the clipboard
+	open   func(dir string) error     // o: show dir in the file manager
+	editor func(dir string) *exec.Cmd // e: the editor, to run in dir
 }
 
-func systemActions() actions { return actions{copy: copyText, open: openDir} }
+func systemActions() actions { return actions{copy: copyText, open: openDir, editor: editorIn} }
 
-// copiedMsg and openedMsg report how y and o went, for the status line.
+// copiedMsg, openedMsg and editedMsg report how y, o and e went, for the
+// status line.
 type (
 	copiedMsg struct {
 		path string
 		err  error
 	}
 	openedMsg struct {
+		path string
+		err  error
+	}
+	editedMsg struct {
 		path string
 		err  error
 	}
@@ -58,6 +65,31 @@ func (m Model) openFolder() (tea.Model, tea.Cmd) {
 	}
 	open := m.act.open
 	return m, func() tea.Msg { return openedMsg{it.Path, open(it.Path)} }
+}
+
+// editFolder hands the terminal to the editor in the highlighted folder,
+// unless it's gone. tea.ExecProcess pauses the menu, runs the editor, and
+// sends editedMsg when it exits; building the command here starts nothing.
+func (m Model) editFolder() (tea.Model, tea.Cmd) {
+	it, ok := m.list.SelectedItem().(item)
+	if !ok {
+		return m, nil // empty list
+	}
+	if cmd := m.refuseGone(it.Path); cmd != nil {
+		return m, cmd
+	}
+	return m, tea.ExecProcess(m.act.editor(it.Path), func(err error) tea.Msg {
+		return editedMsg{it.Path, err}
+	})
+}
+
+// edited follows the editor: nothing to say if it went well (you just saw
+// it), else the error on the bottom line.
+func (m Model) edited(err error) (tea.Model, tea.Cmd) {
+	if err != nil {
+		m.message, m.messageErr = err.Error(), true
+	}
+	return m, nil
 }
 
 // actionDone shows how an action went: "Copied ~/notes" as a status, or the
@@ -96,6 +128,27 @@ func openCommand(goos, dir string) []string {
 		return []string{"open", dir}
 	}
 	return []string{"xdg-open", dir}
+}
+
+// editorCommand is the command that edits the current folder: $VISUAL, else
+// $EDITOR, else vi (like git), split on spaces (so "code -w" works), with "."
+// for the folder. A variable of only spaces counts as unset. getenv is
+// os.Getenv, passed in for tests.
+func editorCommand(getenv func(string) string) []string {
+	for _, name := range []string{"VISUAL", "EDITOR"} {
+		if argv := strings.Fields(getenv(name)); len(argv) > 0 {
+			return append(argv, ".")
+		}
+	}
+	return []string{"vi", "."}
+}
+
+// editorIn is the editor command, run in dir.
+func editorIn(dir string) *exec.Cmd {
+	argv := editorCommand(os.Getenv)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = dir
+	return cmd
 }
 
 // copyText puts text on the clipboard with the system's tool.

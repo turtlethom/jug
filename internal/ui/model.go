@@ -184,11 +184,11 @@ func bind(k, desc string) key.Binding {
 	return key.NewBinding(key.WithKeys(k), key.WithHelp(k, desc))
 }
 
-// editKeys are the keys that change bookmarks. In ? help they're a column of
+// editKeys are the keys that act on bookmarks. In ? help they're a column of
 // their own, through the delegate (see restyle), so the full help stays short
 // enough for an 80x24 terminal.
 func editKeys() []key.Binding {
-	return []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename")}
+	return []key.Binding{bind("a", "add"), bind("r", "remove"), bind("c", "clear"), bind("m", "move"), bind("n", "rename"), bind("e", "edit")}
 }
 
 // setHelpKeys adds pathpin's other keys to the list's help. The short help line
@@ -285,6 +285,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.actionDone("Copied", msg.path, msg.err)
 	case openedMsg:
 		return m.actionDone("Opened", msg.path, msg.err)
+	case editedMsg:
+		return m.edited(msg.err)
 	case folderGoneMsg:
 		if m.list.FilterState() == list.Filtering {
 			// The list re-filters in the background on every key while a
@@ -360,6 +362,8 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.copyPath()
 		case "o":
 			return m.openFolder()
+		case "e":
+			return m.editFolder()
 		case "J", "K", "shift+down", "shift+up":
 			return m.reorder(key.String() == "J" || key.String() == "shift+down")
 		case "tab", "shift+tab":

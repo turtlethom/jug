@@ -12,16 +12,17 @@ import (
 	"github.com/turtlethom/pathpin/internal/config"
 )
 
-// fakeActions records what y and o asked for, instead of touching the
-// clipboard or opening a file manager.
+// fakeActions records what e, y and o asked for, instead of touching the
+// clipboard, opening a file manager or running an editor.
 type fakeActions struct {
-	copied, opened   []string
-	copyErr, openErr error
+	copied, opened, edited []string
+	copyErr, openErr       error
 }
 
 func faked(m Model, f *fakeActions) Model {
 	m.act.copy = func(text string) error { f.copied = append(f.copied, text); return f.copyErr }
 	m.act.open = func(dir string) error { f.opened = append(f.opened, dir); return f.openErr }
+	m.act.editor = func(dir string) *exec.Cmd { f.edited = append(f.edited, dir); return exec.Command("true") }
 	return m
 }
 
@@ -111,33 +112,34 @@ func TestOpenMissingFolder(t *testing.T) {
 	}
 }
 
-// While a filter is typed, y and o are typed into it.
+// While a filter is typed, e, y and o are typed into it.
 func TestActionKeysWhileFiltering(t *testing.T) {
 	f := &fakeActions{}
 	m := faked(twoBookmarks(t), f)
-	for _, k := range []string{"/", "y", "o"} {
+	for _, k := range []string{"/", "y", "o", "e"} {
 		m, _ = press(m, runes(k))
 	}
-	if m.list.FilterValue() != "yo" || len(f.copied)+len(f.opened) > 0 {
-		t.Errorf("want yo typed and nothing done; filter %q, copied %q, opened %q", m.list.FilterValue(), f.copied, f.opened)
+	if m.list.FilterValue() != "yoe" || len(f.copied)+len(f.opened)+len(f.edited) > 0 {
+		t.Errorf("want yoe typed and nothing done; filter %q, copied %q, opened %q, edited %q",
+			m.list.FilterValue(), f.copied, f.opened, f.edited)
 	}
 }
 
-// On an empty menu, y and o do nothing.
+// On an empty menu, e, y and o do nothing.
 func TestActionKeysOnEmptyMenu(t *testing.T) {
 	f := &fakeActions{}
 	m := faked(newTestModel(t), f)
-	for _, k := range []string{"y", "o"} {
+	for _, k := range []string{"y", "o", "e"} {
 		if _, cmd := press(m, runes(k)); cmd != nil {
 			t.Errorf("%s on an empty menu should do nothing", k)
 		}
 	}
 }
 
-// The full help lists y and o.
+// The full help lists e, y and o.
 func TestActionKeysInHelp(t *testing.T) {
 	m, _ := press(twoBookmarks(t), runes("?"))
-	for _, k := range [][2]string{{"y", "copy path"}, {"o", "open"}} {
+	for _, k := range [][2]string{{"e", "edit"}, {"y", "copy path"}, {"o", "open"}} {
 		if !helpShows(m, k[0], k[1]) {
 			t.Errorf("the full help should list %s %s:\n%s", k[0], k[1], plain(m.View()))
 		}
@@ -190,5 +192,70 @@ func TestOpenCommand(t *testing.T) {
 	}
 	if got := openCommand("linux", "/x/y"); !slices.Equal(got, []string{"xdg-open", "/x/y"}) {
 		t.Errorf("Linux: got %q", got)
+	}
+}
+
+// e hands the terminal to the editor in the highlighted folder. Building the
+// editor's command doesn't run it; Bubble Tea does, from the returned command.
+// The menu stays open, and comes back as it was once the editor closes.
+func TestEditFolder(t *testing.T) {
+	f := &fakeActions{}
+	m := faked(twoBookmarks(t), f)
+	m, _ = press(m, tea.KeyMsg{Type: tea.KeyDown}) // NOTES
+	want := m.cfg.Bookmarks[1].Path
+	m, cmd := press(m, runes("e"))
+	if !slices.Equal(f.edited, []string{want}) || cmd == nil {
+		t.Fatalf("want the editor for %q and a command, got %q, command %v", want, f.edited, cmd != nil)
+	}
+	if m.mode != modeBrowse || m.chosen != "" {
+		t.Errorf("e should keep the menu open; mode %v, chosen %q", m.mode, m.chosen)
+	}
+	m = deliver(m, editedMsg{path: want})
+	if m.mode != modeBrowse || m.chosen != "" || m.messageErr || selected(m) != "NOTES" {
+		t.Errorf("after the editor, want the menu as it was:\n%s", plain(m.View()))
+	}
+}
+
+// An editor that can't start or exits with an error shows it on the bottom
+// line.
+func TestEditError(t *testing.T) {
+	m := deliver(twoBookmarks(t), editedMsg{path: "/x", err: errors.New(`exec: "vi": executable file not found in $PATH`)})
+	if !m.messageErr || !strings.Contains(plain(m.View()), `exec: "vi": executable file not found`) {
+		t.Errorf("want the error on the bottom line:\n%s", plain(m.View()))
+	}
+}
+
+// e refuses a missing folder like enter and o, without building the editor.
+func TestEditMissingFolder(t *testing.T) {
+	f := &fakeActions{}
+	m := faked(unstarted(t, config.Bookmark{Label: "GONE", Path: "!gone"}), f) // not checked yet
+	m, _ = press(m, runes("e"))
+	if len(f.edited) > 0 {
+		t.Errorf("e should not edit a missing folder, edited %q", f.edited)
+	}
+	if !strings.Contains(plain(m.View()), "~/gone no longer exists") || !rowFor(t, m, "GONE").missing {
+		t.Errorf("want the folder reported and dimmed:\n%s", plain(m.View()))
+	}
+}
+
+// editorCommand is $VISUAL, else $EDITOR, else vi, split on spaces, with . for
+// the folder. A variable of only spaces counts as unset.
+func TestEditorCommand(t *testing.T) {
+	for name, tc := range map[string]struct {
+		visual, editor string
+		want           []string
+	}{
+		"VISUAL with flags": {"nvim -p", "", []string{"nvim", "-p", "."}},
+		"EDITOR only":       {"", "hx", []string{"hx", "."}},
+		"both":              {"nvim", "nano", []string{"nvim", "."}},
+		"neither":           {"", "", []string{"vi", "."}},
+		"blank VISUAL":      {"  ", "hx", []string{"hx", "."}},
+	} {
+		env := func(k string) string {
+			return map[string]string{"VISUAL": tc.visual, "EDITOR": tc.editor}[k]
+		}
+		if got := editorCommand(env); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: got %q, want %q", name, got, tc.want)
+		}
 	}
 }
