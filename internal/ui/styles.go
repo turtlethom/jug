@@ -89,7 +89,7 @@ func NewStyles(c config.Colors, selection string) Styles {
 		NormalDesc:    plain.Foreground(muted),
 		SelectedTitle: selected,
 		SelectedDesc:  bar.Foreground(muted).Underline(true),
-		DimmedTitle:   plain.Foreground(muted),
+		DimmedTitle:   plain.Foreground(muted).PaddingRight(1), // like NormalTitle, so a tag after it keeps its space
 		DimmedDesc:    plain.Foreground(muted),
 		FilterMatch:   lipgloss.NewStyle().Underline(true),
 	}

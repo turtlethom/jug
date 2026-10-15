@@ -138,7 +138,7 @@ func (m *Model) restyle(cfg *config.Config) {
 	s := NewStyles(cfg.Colors, cfg.Menu.Selection)
 	m.styles = s
 
-	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd}
+	d := delegate{DefaultDelegate: list.NewDefaultDelegate(), missing: s.missing, pathEnd: s.pathEnd, tag: s.muted}
 	d.Styles = s.item
 	m.list.SetDelegate(d)
 	m.list.Styles.Title = s.title
@@ -618,7 +618,7 @@ func (m Model) add(label string) (tea.Model, tea.Cmd) {
 	// Clear any filter so the new row is visible, then select it.
 	m.list.ResetFilter()
 	n := len(m.list.Items())
-	insertCmd := m.list.InsertItem(n, item{Bookmark: added, icons: m.cfg.Menu.Icons, matchGroup: m.tab == config.TabAll})
+	insertCmd := m.list.InsertItem(n, newItem(m.cfg, added, m.tab, m.gone))
 	m.list.Select(n)
 	return m, tea.Batch(insertCmd, m.list.NewStatusMessage("Added "+displayLabel(added.Label)), m.syncTabs())
 }
@@ -999,15 +999,21 @@ func itemsFrom(cfg *config.Config, tab string, gone map[string]bool) []list.Item
 	var items []list.Item
 	for _, b := range cfg.Bookmarks {
 		if inTab(b, tab) {
-			items = append(items, item{
-				Bookmark:   b,
-				missing:    gone[b.Path],
-				icons:      cfg.Menu.Icons,
-				matchGroup: tab == config.TabAll, // on a group's tab, every row shares the group
-			})
+			items = append(items, newItem(cfg, b, tab, gone))
 		}
 	}
 	return items
+}
+
+// newItem is the list row for b on tab. On All, the filter also matches b's
+// group, and the row shows it as a tag, in the group's first spelling. (On a
+// group's tab, every row shares the group.)
+func newItem(cfg *config.Config, b config.Bookmark, tab string, gone map[string]bool) item {
+	it := item{Bookmark: b, missing: gone[b.Path], icons: cfg.Menu.Icons, matchGroup: tab == config.TabAll}
+	if tab == config.TabAll {
+		it.tag = cfg.GroupOf(b) // "" if ungrouped, or in a hand-edited All/Other
+	}
+	return it
 }
 
 // tabs lists the menu's tabs: All, the groups in the order they first appear,
@@ -1040,9 +1046,10 @@ func inTab(b config.Bookmark, tab string) bool {
 // item shows a bookmark in the list.
 type item struct {
 	config.Bookmark
-	missing    bool // folder didn't exist when last checked
-	icons      bool // [menu] icons: show an icon before the label
-	matchGroup bool // the filter also matches the group (on the All tab)
+	missing    bool   // folder didn't exist when last checked
+	icons      bool   // [menu] icons: show an icon before the label
+	matchGroup bool   // the filter also matches the group (on the All tab)
+	tag        string // the group, shown after the label (on the All tab)
 }
 
 func (i item) Title() string {
@@ -1121,12 +1128,13 @@ func filterByRune(term string, targets []string) []list.Rank {
 }
 
 // delegate draws each row as its label and path. The list draws the label
-// (selection, filter matches); renderPath draws the path. Missing rows use
-// muted styles.
+// (selection, filter matches), then Render adds the group tag; renderPath
+// draws the path. Missing rows use muted styles.
 type delegate struct {
 	list.DefaultDelegate
 	missing list.DefaultItemStyles
 	pathEnd lipgloss.TerminalColor // a path's last folder
+	tag     lipgloss.Style         // the group tag after a label
 }
 
 func (d delegate) Height() int { return 2 } // label + path
@@ -1140,8 +1148,35 @@ func (d delegate) Render(w io.Writer, m list.Model, index int, li list.Item) {
 		d.Styles = d.missing // d is a copy, so this only affects this row
 	}
 	d.ShowDescription = false
-	d.DefaultDelegate.Render(w, m, index, li)
-	fmt.Fprint(w, "\n"+d.renderPath(m, index, it))
+	var title strings.Builder
+	d.DefaultDelegate.Render(&title, m, index, li)
+	fmt.Fprint(w, title.String()+d.renderTag(m, index, it, lipgloss.Width(title.String()))+"\n"+d.renderPath(m, index, it))
+}
+
+// renderTag is the row's group tag, "· Config", to go after a label line this
+// wide, or "" if the row has none or it doesn't fit whole. After the selected
+// block it starts with a space; other label lines already end in one (the
+// title's right padding).
+func (d delegate) renderTag(m list.Model, index int, it item, width int) string {
+	if it.tag == "" {
+		return ""
+	}
+	tag := d.tag.Render("· " + it.tag)
+	if d.onBlock(m, index) {
+		tag = " " + tag
+	}
+	if width+lipgloss.Width(tag) > m.Width() {
+		return ""
+	}
+	return tag
+}
+
+// onBlock reports whether the list draws this row's label as a block: it's
+// the selected row, no filter is being typed (DefaultDelegate's rule), and its
+// selected style has a background (block mode, and not a missing row).
+func (d delegate) onBlock(m list.Model, index int) bool {
+	_, noBlock := d.Styles.SelectedTitle.GetBackground().(lipgloss.NoColor)
+	return index == m.Index() && m.FilterState() != list.Filtering && !noBlock
 }
 
 // renderPath draws a row's path in the style the list would use for it, cut to
