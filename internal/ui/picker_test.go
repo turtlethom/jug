@@ -245,20 +245,27 @@ func TestThemePickerEscRestores(t *testing.T) {
 	}
 }
 
-// The color choices: the terminal's 16 ANSI colors by number, then fcd's 20
-// named colors, all drawable and none twice.
+// colorChoices are the terminal's 16 ANSI colors, then the named colors in
+// hue order (reds round to pinks, then browns and neutrals light to dark).
+// Every named color is one lowercase word that no other color uses, ANSI
+// names included, and every value is a valid, unrepeated color.
 func TestColorChoices(t *testing.T) {
 	choices := colorChoices()
 	ansi := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}
-	fcd := [][2]string{
-		{"crimson", "#DC143C"}, {"coral", "#F08080"}, {"pink", "#FF007F"}, {"red", "#E06C75"},
-		{"orange", "#D19A66"}, {"tangerine", "#FF9500"}, {"amber", "#FFBF00"}, {"gold", "#DAA520"},
-		{"yellow", "#E5C078"}, {"green", "#98C379"}, {"emerald", "#50C878"}, {"aqua", "#56B6C2"},
-		{"navy", "#000080"}, {"amethyst", "#9966CC"}, {"indigo", "#4B0082"}, {"violet", "#C678DD"},
-		{"gray", "#5C6370"}, {"white", "#FFFFFF"}, {"black", "#000000"}, {"brown", "#A0522D"},
+	named := [][2]string{
+		{"crimson", "#DC143C"}, {"blush", "#E06C75"}, {"salmon", "#F08080"},
+		{"copper", "#D19A66"}, {"orange", "#FF9500"},
+		{"honey", "#E5C078"}, {"mustard", "#DAA520"}, {"amber", "#FFBF00"},
+		{"lime", "#A6E22E"}, {"pistachio", "#98C379"}, {"emerald", "#50C878"}, {"mint", "#3EB489"},
+		{"teal", "#008080"}, {"aqua", "#56B6C2"}, {"sky", "#87CEEB"},
+		{"cobalt", "#0047AB"}, {"cornflower", "#6495ED"}, {"navy", "#000080"},
+		{"amethyst", "#9966CC"}, {"indigo", "#4B0082"}, {"lavender", "#B57EDC"}, {"orchid", "#C678DD"},
+		{"rose", "#FF007F"},
+		{"sienna", "#A0522D"},
+		{"snow", "#FFFFFF"}, {"silver", "#C0C0C0"}, {"slate", "#5C6370"}, {"charcoal", "#36454F"}, {"ink", "#000000"},
 	}
-	if len(choices) != 16+len(fcd) {
-		t.Fatalf("want %d choices, got %d", 16+len(fcd), len(choices))
+	if len(choices) != 16+len(named) {
+		t.Fatalf("want %d choices, got %d", 16+len(named), len(choices))
 	}
 	for i, c := range choices[:16] {
 		want := ansi[i%8]
@@ -270,16 +277,26 @@ func TestColorChoices(t *testing.T) {
 		}
 	}
 	for i, c := range choices[16:] {
-		if c.name != fcd[i][0] || !strings.EqualFold(c.value, fcd[i][1]) {
-			t.Errorf("choice %d: want %s · %s, got %s · %s", 16+i, fcd[i][0], fcd[i][1], c.name, c.value)
+		if c.name != named[i][0] || !strings.EqualFold(c.value, named[i][1]) {
+			t.Errorf("choice %d: want %s · %s, got %s · %s", 16+i, named[i][0], named[i][1], c.name, c.value)
 		}
 	}
-	seen := map[string]bool{}
+
+	names, values := map[string]bool{}, map[string]bool{}
 	for _, c := range choices {
-		if !validColor(c.value) || seen[strings.ToLower(c.value)] {
+		if names[c.name] {
+			t.Errorf("the name %q is used twice", c.name)
+		}
+		names[c.name] = true
+		if !validColor(c.value) || values[strings.ToLower(c.value)] {
 			t.Errorf("%s · %s is invalid or repeated", c.name, c.value)
 		}
-		seen[strings.ToLower(c.value)] = true
+		values[strings.ToLower(c.value)] = true
+	}
+	for _, c := range choices[16:] {
+		if c.name != strings.ToLower(c.name) || strings.ContainsAny(c.name, "- ") {
+			t.Errorf("%q should be one lowercase word", c.name)
+		}
 	}
 }
 

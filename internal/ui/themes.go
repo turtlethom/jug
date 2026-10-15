@@ -138,8 +138,10 @@ type namedColor struct {
 }
 
 // colorChoices lists the picker's colors: the terminal's 16 ANSI colors
-// first, which follow the terminal's own palette, then fcd's named colors.
-// The names overlap (both have a red), so the picker shows name and value.
+// first, which follow the terminal's own palette, then named colors in hue
+// order (reds round to pinks, then browns, then neutrals light to dark), so
+// ←→ changes gradually. Each named color is one word no other color uses.
+// The picker shows name and value, since the value is what's saved.
 func colorChoices() []namedColor {
 	ansi := []string{"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}
 	var choices []namedColor
@@ -151,10 +153,23 @@ func colorChoices() []namedColor {
 		choices = append(choices, namedColor{name, strconv.Itoa(i)})
 	}
 	return append(choices, []namedColor{
-		{"crimson", "#DC143C"}, {"coral", "#F08080"}, {"pink", "#FF007F"}, {"red", "#E06C75"},
-		{"orange", "#D19A66"}, {"tangerine", "#FF9500"}, {"amber", "#FFBF00"}, {"gold", "#DAA520"},
-		{"yellow", "#E5C078"}, {"green", "#98C379"}, {"emerald", "#50C878"}, {"aqua", "#56B6C2"},
-		{"navy", "#000080"}, {"amethyst", "#9966CC"}, {"indigo", "#4B0082"}, {"violet", "#C678DD"},
-		{"gray", "#5C6370"}, {"white", "#FFFFFF"}, {"black", "#000000"}, {"brown", "#A0522D"},
+		// reds
+		{"crimson", "#DC143C"}, {"blush", "#E06C75"}, {"salmon", "#F08080"},
+		// oranges
+		{"copper", "#D19A66"}, {"orange", "#FF9500"},
+		// yellows
+		{"honey", "#E5C078"}, {"mustard", "#DAA520"}, {"amber", "#FFBF00"},
+		// greens
+		{"lime", "#A6E22E"}, {"pistachio", "#98C379"}, {"emerald", "#50C878"}, {"mint", "#3EB489"},
+		// cyans
+		{"teal", "#008080"}, {"aqua", "#56B6C2"}, {"sky", "#87CEEB"},
+		// blues
+		{"cobalt", "#0047AB"}, {"cornflower", "#6495ED"}, {"navy", "#000080"},
+		// purples
+		{"amethyst", "#9966CC"}, {"indigo", "#4B0082"}, {"lavender", "#B57EDC"}, {"orchid", "#C678DD"},
+		// pink, brown
+		{"rose", "#FF007F"}, {"sienna", "#A0522D"},
+		// neutrals, light to dark
+		{"snow", "#FFFFFF"}, {"silver", "#C0C0C0"}, {"slate", "#5C6370"}, {"charcoal", "#36454F"}, {"ink", "#000000"},
 	}...)
 }
