@@ -23,10 +23,12 @@ type actions struct {
 	editor func(dir string) *exec.Cmd // e: the editor, to run in dir
 }
 
+// systemActions are the real actions, for New.
 func systemActions() actions { return actions{copy: copyText, open: openDir, editor: editorIn} }
 
 // copiedMsg, openedMsg and editedMsg report how y, o and e went, for the
-// status line.
+// status line. Each is the message its command returns; Update's switch on the
+// message type sends it to actionDone or edited.
 type (
 	copiedMsg struct {
 		path string
@@ -49,7 +51,11 @@ func (m Model) copyPath() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil // empty list
 	}
-	toClipboard := m.act.copy // the command gets the function, never the model
+	// The returned func is the tea.Cmd: Bubble Tea runs it on another
+	// goroutine and passes its copiedMsg to Update. It captures only the
+	// function and the path, never the model, which Update may be changing
+	// meanwhile.
+	toClipboard := m.act.copy
 	return m, func() tea.Msg { return copiedMsg{it.Path, toClipboard(it.Path)} }
 }
 
@@ -177,6 +183,8 @@ func openDir(dir string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go func() { _ = cmd.Wait() }() // reap it whenever it exits; nothing to report by then
+	// Wait in the background so the exited opener is reaped (a process nobody
+	// waits for lingers as a zombie); there's nothing to report by then.
+	go func() { _ = cmd.Wait() }()
 	return nil
 }

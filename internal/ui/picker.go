@@ -30,7 +30,11 @@ type pickerRow struct {
 	rebuild bool // a change rebuilds the list's rows (icons are part of each row)
 }
 
+// appearanceRows is the picker's table, top to bottom. It's built fresh on
+// each call (cheap), so there's no package-level state.
 func appearanceRows() []pickerRow {
+	// color builds the five color rows. field points get and set at one
+	// [colors] field (its address, &c.Primary), so each row is one line.
 	color := func(key, hint string, field func(*config.Colors) *string) pickerRow {
 		return pickerRow{
 			key: key, hint: hint, def: "theme's", values: colorValues, color: true,
@@ -114,6 +118,8 @@ func (m Model) closePicker() Model {
 	return m
 }
 
+// updateTheme handles keys while the picker's rows are open (modeTheme).
+// Changes go to the draft and are previewed at once; only enter saves.
 func (m Model) updateTheme(msg tea.Msg) (tea.Model, tea.Cmd) {
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -125,6 +131,8 @@ func (m Model) updateTheme(msg tea.Msg) (tea.Model, tea.Cmd) {
 	row := rows[m.themeRow]
 	switch k.String() {
 	case "up", "k":
+		// Wraps to the bottom. Adding len(rows) first keeps it from going
+		// negative, since Go's % keeps the sign (-1 % 8 is -1).
 		m.themeRow = (m.themeRow + len(rows) - 1) % len(rows)
 	case "down", "j":
 		m.themeRow = (m.themeRow + 1) % len(rows)
@@ -145,6 +153,8 @@ func (m Model) updateTheme(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.saveLook()
 	case "esc":
+		// Undo the preview: restyle from the saved config, and rebuild the
+		// rows if the preview changed icons.
 		m.restyle(m.cfg)
 		if m.draft.Menu.Icons != m.cfg.Menu.Icons {
 			m.setRows(m.cfg)

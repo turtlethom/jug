@@ -27,6 +27,9 @@ func (m Model) hints(width int, hs ...hint) string {
 		}
 		parts[i] = p
 	}
+	// Drop hints from the end until the rest, plus " …" if anything was
+	// dropped, fits. lipgloss.Width counts the columns a string takes on
+	// screen; len would also count the invisible color codes Render adds.
 	tail := m.styles.muted.Render(" …")
 	n := len(parts)
 	for width > 0 && n > 0 && lipgloss.Width(strings.Join(parts[:n], ""))+ellipsis(n < len(parts), tail) > width {
@@ -70,6 +73,7 @@ func (m Model) helpView() string {
 	if m.picking() {
 		return ""
 	}
+	// A style's frame size is its padding, border and margin, left plus right.
 	width := m.width - m.styles.app.GetHorizontalFrameSize() - m.styles.help.GetHorizontalFrameSize()
 	if m.list.Help.ShowAll {
 		h := m.list.Help
