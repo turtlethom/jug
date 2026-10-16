@@ -12,6 +12,11 @@
 //	primary = "#56B6C2"
 //
 // The doc comments are the spec, and config_test.go checks them.
+//
+// This package knows nothing about the menu or the shell. The cmd and ui
+// packages Load a *Config, change it with methods like Add, Remove and
+// SetGroup, and Save it again. Callers that must not show a change before it's
+// saved (the menu) edit a copy, Save the copy, then swap it in.
 package config
 
 import (
@@ -33,6 +38,10 @@ import (
 //
 // In memory, Path is always absolute. On disk, paths inside $HOME are written
 // as "~/..." so a config can be shared across machines through dotfiles.
+//
+// The `toml:"..."` struct tags name each field's key in the file; omitempty
+// leaves the key out when the field is empty, so ungrouped bookmarks have no
+// group line.
 type Bookmark struct {
 	Label string `toml:"label"`
 	Path  string `toml:"path"`
@@ -64,6 +73,8 @@ type Config struct {
 	Menu      Menu       `toml:"menu,omitempty"` // omitempty: no empty [menu] table on save
 }
 
+// Functions wrap these errors with details (fmt.Errorf's %w), so callers test
+// for them with errors.Is rather than ==.
 var (
 	// ErrDuplicate means a bookmark with the same label or path already exists.
 	ErrDuplicate = errors.New("bookmark already exists")
@@ -129,6 +140,8 @@ func Load(path string) (*Config, error) {
 	}
 
 	var c Config
+	// md (metadata) remembers which keys the file had; Undecoded below lists
+	// the ones that matched no field of Config.
 	md, err := toml.Decode(string(data), &c)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -153,12 +166,14 @@ func Load(path string) (*Config, error) {
 // expanded and cleaned. Missing folders and duplicate paths are allowed.
 func validate(c *Config) error {
 	for i := range c.Bookmarks {
-		b := &c.Bookmarks[i]
+		b := &c.Bookmarks[i] // a pointer into the slice, so the edits below stick
 		b.Label = strings.TrimSpace(b.Label)
 		b.Group = strings.TrimSpace(b.Group)
 		if b.Label == "" {
 			return fmt.Errorf("bookmark %d: label is empty", i+1)
 		}
+		// index finds the first bookmark with this label; if that isn't this
+		// one, an earlier bookmark already has it.
 		if c.index(b.Label) != i {
 			return fmt.Errorf("bookmark %d (%q): duplicate label", i+1, b.Label)
 		}
@@ -191,6 +206,8 @@ func validate(c *Config) error {
 //   - A symlink pointing at a missing file is an error. The written file keeps
 //     the existing file's permissions, or 0644 for a new one.
 func Save(path string, c *Config) error {
+	// target is the real file behind path. Writing a temp file and renaming it
+	// over a symlink would replace the link itself, so the rename aims here.
 	target, err := filepath.EvalSymlinks(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		if _, lerr := os.Lstat(path); lerr == nil {
@@ -235,6 +252,11 @@ func Save(path string, c *Config) error {
 		return err
 	}
 
+	// The atomic write: the new contents go to a temp file first, and the
+	// rename at the end swaps it in all at once. A crash or full disk midway
+	// leaves the old config intact, never a half-written one. The temp file
+	// sits next to the target because rename is only atomic within one
+	// filesystem.
 	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -253,6 +275,8 @@ func Save(path string, c *Config) error {
 		tmp.Close()
 		return err
 	}
+	// Sync flushes the data to disk before the rename, so a power cut can't
+	// leave the renamed file empty.
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return err
@@ -547,6 +571,8 @@ func (c *Config) RenameGroup(group, newName string) error {
 	if j := groupIndex(names, newName); j >= 0 && j != g {
 		newName = names[j] // merge into the other group, in its spelling
 	}
+	// names[g] is the group's first spelling; matching any case catches
+	// every bookmark in it, however each one spells it.
 	for i := range c.Bookmarks {
 		if b := &c.Bookmarks[i]; !b.Ungrouped() && strings.EqualFold(b.Group, names[g]) {
 			b.Group = newName
@@ -572,6 +598,8 @@ func (c *Config) Move(label string, down bool, within func(Bookmark) bool) (bool
 	if down {
 		step = 1
 	}
+	// Walk away from i one bookmark at a time, skipping those within rejects
+	// (bookmarks on other tabs), and swap with the first one it accepts.
 	for j := i + step; j >= 0 && j < len(c.Bookmarks); j += step {
 		if within != nil && !within(c.Bookmarks[j]) {
 			continue
