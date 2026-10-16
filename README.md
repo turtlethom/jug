@@ -152,6 +152,12 @@ icons = true
 Coming from `fcd`? Your bookmarks are imported automatically the first time you run pathpin, and
 fcd's file is left in place.
 
+## How it works
+
+pathpin is a Go binary plus a small shell function that does the `cd` for it.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) maps the code: the packages, how a key press becomes
+a `cd`, and where to make changes.
+
 ## License
 
 MIT
