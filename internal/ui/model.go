@@ -57,7 +57,9 @@ const emptyMessage = "No bookmarks yet — press a to add this directory"
 // tool's name, never the --cmd name.
 const menuTitle = "PATHPIN"
 
-// Model is the pathpin menu.
+// Model is the pathpin menu: everything it shows and remembers. Bubble Tea
+// holds the current Model, hands it each message through Update, and keeps the
+// Model that Update returns. See the package comment in run.go.
 type Model struct {
 	mode       mode
 	list       list.Model
@@ -223,6 +225,7 @@ func setHelpKeys(l *list.Model, withTabs bool) {
 // their own goroutines and sends each result to Update. (enter still checks
 // its folder synchronously, so enter on a hung mount does wait.)
 func (m Model) Init() tea.Cmd {
+	// tea.Batch combines commands into one; Bubble Tea runs them all at once.
 	var checks []tea.Cmd
 	for _, b := range m.cfg.Bookmarks {
 		checks = append(checks, checkFolder(b.Path))
@@ -277,8 +280,17 @@ func (m *Model) markGone(path string) {
 	}
 }
 
+// Update is Bubble Tea's entry point for every message: a key, a window
+// size, or a command's result. It works in two stages: first the messages
+// every mode treats the same (resizes, action results, folder checks,
+// ctrl+c), then it hands the rest to the open mode's update function.
+//
+// The fields (a, m, n, N, #) share updateField. It gets which field to edit
+// and what enter does; Model.addFromField and friends are method
+// expressions, methods used as plain functions taking the Model first.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Messages every mode handles the same way.
+	// A type switch: msg is an interface (tea.Msg), and each case gets it
+	// back as its real type, so msg.Width or msg.path can be read.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -327,6 +339,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateBrowse handles the main menu (modeBrowse). pathpin's own keys start
+// an action or another mode; everything else (arrows, /, ?, g, paging) goes
+// to the list.
 func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// While typing a filter, every key belongs to the filter (v1 bug: q quit
 	// mid-filter), so only intercept keys outside it.
@@ -382,6 +397,9 @@ func (m Model) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.showTab(names[(i+step+len(names))%len(names)])
 		}
 	}
+	// The list is itself a Bubble Tea model with its own Update. Passing it
+	// the message and keeping the list it returns is how a component inside
+	// the Model gets its keys (and its commands come back to Bubble Tea).
 	var cmd tea.Cmd
 	helpHeight := lipgloss.Height(m.helpView())
 	m.list, cmd = m.list.Update(msg)
@@ -538,7 +556,19 @@ func bookmarks(n int) string {
 
 // edit returns a copy of the config to change and save: every setting, and its
 // own bookmarks slice, so the menu's config stays as it is until the save works.
+//
+// Every change in the menu follows the same steps (edit, save, swap):
+//
+//	next := m.edit()                  // a copy
+//	next.Add(...)                     // change the copy; an error stops here
+//	config.Save(m.configPath, next)   // a failed save stops here too
+//	m.cfg = next                      // only now does the menu use it
+//	... rebuild rows, status message
+//
+// So whatever goes wrong, the screen still matches the file.
 func (m Model) edit() *config.Config {
+	// Copying the struct copies the slice header only, which still points at
+	// the same bookmarks; Clone gives the copy its own.
 	next := *m.cfg
 	next.Bookmarks = slices.Clone(m.cfg.Bookmarks)
 	return &next
@@ -570,7 +600,7 @@ func (m Model) startAdd() (tea.Model, tea.Cmd) {
 	// With Width 0, textinput shows only a placeholder's first letter. Fit the
 	// suggestion; longer labels scroll sideways.
 	m.input.Width = max(len([]rune(m.input.Placeholder))+1, 12)
-	return m, m.input.Focus()
+	return m, m.input.Focus() // Focus returns the command that blinks the cursor
 }
 
 // updateField handles the bottom-line field that field picks out of the
@@ -607,6 +637,8 @@ func (m Model) updateField(msg tea.Msg, field func(*Model) *textinput.Model, sav
 	return m, tea.Batch(fieldCmd, listCmd)
 }
 
+// labelField, groupField and hexField pick a text field out of a Model, for
+// updateField: a, n use the label field, m and N the group field, # the hex.
 func labelField(m *Model) *textinput.Model { return &m.input }
 func groupField(m *Model) *textinput.Model { return &m.group }
 func hexField(m *Model) *textinput.Model   { return &m.hex }
@@ -928,6 +960,7 @@ func (m Model) choose() (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	m.chosen = it.Path
+	// tea.Quit ends the program; Run then reads chosen from this Model.
 	return m, tea.Quit
 }
 
