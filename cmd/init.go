@@ -8,6 +8,9 @@ import (
 	"github.com/turtlethom/pathpin/internal/shell"
 )
 
+// newInitCmd builds `pathpin init <shell> [--cmd name]`, which prints the
+// shell function from internal/shell plus Cobra's completions for that shell.
+// The user evals the output from their shell config.
 func newInitCmd() *cobra.Command {
 	var name string
 	c := &cobra.Command{
@@ -35,7 +38,9 @@ the same name in interactive shells.`,
 				return err
 			}
 
-			// Completions register for the name the user will type.
+			// Completions register for the name the user will type. Cobra
+			// takes that name from the root's Use, so change it before
+			// generating them.
 			root := cmd.Root()
 			root.Use = name + " [label]"
 			switch args[0] {
@@ -43,6 +48,7 @@ the same name in interactive shells.`,
 				// The wrapper works in zsh too, but bash completions break on
 				// every Tab there, so skip them and say which line to use.
 				fmt.Fprintln(out, `if [ -n "${ZSH_VERSION-}" ]; then`)
+				// %%s prints a literal %s for printf; %s is the hint.
 				fmt.Fprintf(out, "    printf '%%s\\n' '%s' >&2\n", wrongShellHint("bash", "zsh", name))
 				fmt.Fprintln(out, "else")
 				if err := root.GenBashCompletionV2(out, true); err != nil {

@@ -52,6 +52,8 @@ func formatList(bookmarks []config.Bookmark) string {
 		width = max(width, utf8.RuneCountInString(b.Label))
 	}
 	var sb strings.Builder
+	// row and section are closures: small functions that write into sb and
+	// share width, so the code below reads as "a row", "a section".
 	row := func(indent string, b config.Bookmark) {
 		pad := strings.Repeat(" ", width-utf8.RuneCountInString(b.Label))
 		fmt.Fprintf(&sb, "%s%s%s  %s", indent, b.Label, pad, config.ContractHome(b.Path))
@@ -61,6 +63,7 @@ func formatList(bookmarks []config.Bookmark) string {
 		sb.WriteString("\n")
 	}
 
+	// A Config just to reuse the group rules the menu uses (Groups, GroupOf).
 	cfg := &config.Config{Bookmarks: bookmarks}
 	groups := cfg.Groups()
 	if len(groups) == 0 {
@@ -90,6 +93,8 @@ func formatList(bookmarks []config.Bookmark) string {
 	for _, g := range groups {
 		section(g, func(b config.Bookmark) bool { return cfg.GroupOf(b) == g })
 	}
+	// config.Bookmark.Ungrouped is a method used as a plain function:
+	// func(b config.Bookmark) bool, the same type section expects.
 	section(config.TabOther, config.Bookmark.Ungrouped)
 	return sb.String()
 }

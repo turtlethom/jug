@@ -1,4 +1,16 @@
-// Package cmd defines pathpin's command-line interface.
+// Package cmd defines pathpin's command-line interface with Cobra.
+//
+// Each command is a *cobra.Command built by a newXxxCmd function: Use and the
+// help texts describe it, Args checks its arguments, and RunE runs it (RunE
+// rather than Run, so it can return an error). The root command is `pathpin`
+// itself; init, add and ls are added under it.
+//
+// Every command follows the same path: loadConfig (which migrates fcd's config
+// on the first run), do the work, then either save with config.Save or hand a
+// directory to the shell with handoff. The menu itself lives in internal/ui.
+//
+// Commands print through cmd.OutOrStdout() and cmd.ErrOrStderr() rather than
+// os.Stdout, so tests can capture the output with SetOut and SetErr.
 package cmd
 
 import (
@@ -24,6 +36,9 @@ func NewRootCmd() *cobra.Command {
 	return newRootCmd(ui.Run)
 }
 
+// newRootCmd builds the tree with menu as the interactive menu. Passing the
+// menu in (ui.Run for real, a fake in tests) is what lets root_test.go check
+// `pathpin` with no arguments without a terminal.
 func newRootCmd(menu menuFunc) *cobra.Command {
 	// The name the user types: pathpin, or whatever they chose with init --cmd.
 	name := shell.CmdName()
@@ -48,7 +63,7 @@ Set up your shell first: see 'pathpin init --help'.`, name),
 			warnAboutStyle(cmd, cfg)
 			dir, err := menu(cfg, path)
 			if err != nil || dir == "" {
-				return err
+				return err // dir is "" when the menu quit without enter
 			}
 			return handoff(cmd, dir)
 		},
@@ -175,13 +190,16 @@ func completeLabels(cmd *cobra.Command, args []string, toComplete string) ([]str
 	return labels, cobra.ShellCompDirectiveNoFileComp
 }
 
+// isDir reports whether p exists and is a directory (following symlinks).
 func isDir(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
 }
 
+// isTerminal reports whether w is a terminal rather than a pipe, a file, or
+// a test's buffer. Terminals are character devices; pipes and files aren't.
 func isTerminal(w io.Writer) bool {
-	f, ok := w.(*os.File)
+	f, ok := w.(*os.File) // type assertion: is this io.Writer an *os.File?
 	if !ok {
 		return false
 	}

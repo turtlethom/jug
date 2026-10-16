@@ -10,7 +10,11 @@ import (
 	"github.com/turtlethom/pathpin/internal/config"
 )
 
+// newAddCmd builds `pathpin add [label] [--group G]`, which bookmarks the
+// current directory from the shell (the menu's a does the same).
 func newAddCmd() *cobra.Command {
+	// Cobra parses --group into this variable before RunE runs; RunE is a
+	// closure, so it reads the parsed value.
 	var group string
 	c := &cobra.Command{
 		Use:   "add [label]",
@@ -46,7 +50,7 @@ a group that exists in another case is joined with its spelling.`,
 				return err
 			}
 
-			b := cfg.Bookmarks[len(cfg.Bookmarks)-1]
+			b := cfg.Bookmarks[len(cfg.Bookmarks)-1] // Add appends, so the new one is last
 			errOut := cmd.ErrOrStderr()
 			me := cmd.Root().Name()
 			inGroup := ""
@@ -80,6 +84,8 @@ func completeGroups(_ *cobra.Command, _ []string, toComplete string) ([]string, 
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
+	// Compare runes (characters), not bytes, so a group like "Übung" isn't
+	// cut in the middle of a letter.
 	typed := []rune(toComplete)
 	var names []string
 	for _, g := range cfg.Groups() {
