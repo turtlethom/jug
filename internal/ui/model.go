@@ -974,6 +974,10 @@ func (m *Model) refuseGone(path string) tea.Cmd {
 	return m.list.NewStatusMessage(config.ContractHome(path) + " no longer exists")
 }
 
+// View draws the whole screen from the Model, top to bottom: the list (title,
+// tab bar, rows, status and page dots), the help, the picker when it's open,
+// then the bottom line. It only reads the Model; Bubble Tea calls it after
+// every Update and puts the string on screen.
 func (m Model) View() string {
 	body := m.list.View()
 	// The tab bar and its rule go under the list's title line (the filter
@@ -1118,6 +1122,14 @@ func inTab(b config.Bookmark, tab string) bool {
 }
 
 // item shows a bookmark in the list.
+//
+// The list stores rows as list.Item, an interface. Go interfaces are met
+// implicitly: item has FilterValue, so it is a list.Item, and Title and
+// Description, which DefaultDelegate draws. Rows come back out of the list
+// with a type assertion, li.(item).
+//
+// Embedding config.Bookmark (a field with no name) promotes its fields, so
+// it.Label and it.Path work as if item declared them.
 type item struct {
 	config.Bookmark
 	missing    bool   // folder didn't exist when last checked
@@ -1126,6 +1138,7 @@ type item struct {
 	tag        string // the group, shown after the label (on the All tab)
 }
 
+// Title is the label line: icon, label in uppercase, and (missing).
 func (i item) Title() string {
 	t := i.icon() + displayLabel(i.Label)
 	if i.missing {
@@ -1133,6 +1146,8 @@ func (i item) Title() string {
 	}
 	return t
 }
+
+// Description is the path line, with ~ for $HOME (drawn by renderPath).
 func (i item) Description() string { return config.ContractHome(i.Path) }
 
 // FilterValue starts the same way as Title (icon, then the label in
@@ -1185,6 +1200,8 @@ func filterByRune(term string, targets []string) []list.Rank {
 	for i, t := range targets {
 		labels[i], groups[i], _ = strings.Cut(t, groupSep)
 	}
+	// A Rank is a matching row: its Index in targets, and the positions of
+	// the matched letters, which the list underlines.
 	ranks := list.DefaultFilter(term, labels)
 	byLabel := make(map[int]bool, len(ranks))
 	for _, r := range ranks {
@@ -1204,6 +1221,10 @@ func filterByRune(term string, targets []string) []list.Rank {
 // delegate draws each row as its label and path. The list draws the label
 // (selection, filter matches), then Render adds the group tag; renderPath
 // draws the path. Missing rows use muted styles.
+//
+// The list asks its delegate (a list.ItemDelegate) how tall a row is and how
+// to draw it. Embedding DefaultDelegate keeps its other methods and its label
+// drawing; Height and Render below replace its own.
 type delegate struct {
 	list.DefaultDelegate
 	missing list.DefaultItemStyles
@@ -1211,8 +1232,11 @@ type delegate struct {
 	tag     lipgloss.Style         // the group tag after a label
 }
 
+// Height is the lines per row, which the list uses to page.
 func (d delegate) Height() int { return 2 } // label + path
 
+// Render writes row index to w: the label line drawn by DefaultDelegate (with
+// its description turned off), the group tag, then the path line.
 func (d delegate) Render(w io.Writer, m list.Model, index int, li list.Item) {
 	it, ok := li.(item)
 	if !ok || m.Width() <= 0 {
@@ -1249,6 +1273,8 @@ func (d delegate) renderTag(m list.Model, index int, it item, width int) string 
 // the selected row, no filter is being typed (DefaultDelegate's rule), and its
 // selected style has a background (block mode, and not a missing row).
 func (d delegate) onBlock(m list.Model, index int) bool {
+	// The comma-ok type assertion reports, without panicking, whether the
+	// background is lipgloss.NoColor (no background set).
 	_, noBlock := d.Styles.SelectedTitle.GetBackground().(lipgloss.NoColor)
 	return index == m.Index() && m.FilterState() != list.Filtering && !noBlock
 }
@@ -1272,7 +1298,8 @@ func (d delegate) renderPath(m list.Model, index int, it item) string {
 		return style.Render(path)
 	}
 	head, last := splitLast(path)
-	// The head carries the row's padding and bar; the last folder is inline.
+	// The head carries the row's padding and bar; Inline drops them from the
+	// last folder's style, so it continues the same line.
 	return style.Render(head) + style.Inline(true).Foreground(d.pathEnd).Render(last)
 }
 
@@ -1320,7 +1347,7 @@ func cutEnd(s string, width int) string {
 	}
 	var b strings.Builder
 	used := 0
-	for _, r := range s {
+	for _, r := range s { // ranging over a string gives runes (characters)
 		w := lipgloss.Width(string(r))
 		if used+w > width-1 {
 			break
@@ -1331,6 +1358,7 @@ func cutEnd(s string, width int) string {
 	return b.String() + "…"
 }
 
+// isDir reports whether p exists and is a directory (following symlinks).
 func isDir(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
