@@ -10,20 +10,22 @@ import (
 )
 
 // Styles holds every style the menu uses. Build it with NewStyles and pass it
-// in; there are no package-level styles.
+// in; there are no package-level styles. The model keeps copies in several
+// places (the list, the delegate, each text field), so restyle in model.go
+// updates all of them when the picker changes a color.
 type Styles struct {
 	app     lipgloss.Style // frame around the whole menu
 	title   lipgloss.Style
 	status  lipgloss.Style
 	empty   lipgloss.Style
-	filter  lipgloss.Style // filter prompt and cursor
-	prompt  lipgloss.Style // y/N prompts on the bottom line
-	note    lipgloss.Style // messages on the bottom line
-	errText lipgloss.Style // errors on the bottom line
-	muted   lipgloss.Style // hints and placeholders
-	key     lipgloss.Style // the keys in key hints
-	help    lipgloss.Style // the help under the list
-	item    list.DefaultItemStyles
+	filter  lipgloss.Style         // filter prompt and cursor
+	prompt  lipgloss.Style         // y/N prompts on the bottom line
+	note    lipgloss.Style         // messages on the bottom line
+	errText lipgloss.Style         // errors on the bottom line
+	muted   lipgloss.Style         // hints and placeholders
+	key     lipgloss.Style         // the keys in key hints
+	help    lipgloss.Style         // the help under the list
+	item    list.DefaultItemStyles // bubbles' row styles: Normal, Selected, Dimmed (while typing a filter)
 	missing list.DefaultItemStyles // rows whose folder is gone
 	pathEnd lipgloss.TerminalColor // a path's last folder: the label color
 	tabBar  lipgloss.Style         // the line of group tabs, and the rule under it
@@ -69,6 +71,8 @@ func NewStyles(c config.Colors, selection string) Styles {
 	muted := pick(c.Tertiary, theme.muted)
 	errColor := pick(c.Error, theme.err)
 
+	// A lipgloss.Style is a value, and each method returns a changed copy, so
+	// bar and plain are bases: bar.Foreground(x) leaves bar itself alone.
 	bar := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(primary).

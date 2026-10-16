@@ -10,7 +10,11 @@ import (
 	"github.com/turtlethom/pathpin/internal/config"
 )
 
-// palette is the five colors a theme decides.
+// palette is the five colors a theme decides. lipgloss.TerminalColor is an
+// interface: lipgloss.Color("6") is ANSI color 6, which the terminal's own
+// palette decides; lipgloss.Color("#56b6c2") is an exact color, which lipgloss
+// rounds to the nearest one on terminals with fewer colors; NoColor{} keeps
+// the terminal's default.
 type palette struct {
 	accent   lipgloss.TerminalColor // selected row's block, title, filter
 	onAccent lipgloss.TerminalColor // text on the accent
@@ -47,6 +51,8 @@ func themes() map[string]palette {
 	}
 }
 
+// hex builds a palette from five "#rrggbb" colors, so each preset fits on one
+// line.
 func hex(accent, onAccent, text, muted, err string) palette {
 	return palette{
 		accent:   lipgloss.Color(accent),
@@ -84,6 +90,7 @@ func lookupTheme(name string) (p palette, ok bool) {
 	if name == "" {
 		return all[terminalTheme], true
 	}
+	// The map's keys are lowercase, so lowercasing name matches any case.
 	if p, ok := all[strings.ToLower(name)]; ok {
 		return p, true
 	}
@@ -97,7 +104,7 @@ func validColor(s string) bool {
 		if len(h) != 3 && len(h) != 6 {
 			return false
 		}
-		_, err := strconv.ParseUint(h, 16, 32)
+		_, err := strconv.ParseUint(h, 16, 32) // base 16: fails on anything but hex digits
 		return err == nil
 	}
 	// Digits only: Atoi alone would also take a sign, like "+5".
